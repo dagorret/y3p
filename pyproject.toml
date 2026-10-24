@@ -1,0 +1,21 @@
+[project]
+name = "y3p"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Carlos Dagorret", email = "dagorret@gmail.com" }
+]
+requires-python = ">=3.12.15"
+dependencies = [
+    "django>=6.1,<6.2",
+    "django-environ>=0.11.2",
+    "psycopg[binary]>=3.2",
+]
+
+[project.scripts]
+y3p = "y3p:main"
+
+[build-system]
+requires = ["uv_build>=0.13.5,<0.14.0"]
+build-backend = "uv_build"
