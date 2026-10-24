@@ -1,10 +1,17 @@
-# Python-generated files
-__pycache__/
-*.py[oc]
-build/
-dist/
-wheels/
-*.egg-info
+# Archivo de secretos locales (JAMÁS SUBIR)
+.env
+.env.local
+.env.*.local
 
-# Virtual environments
-.venv
+# Entornos virtuales
+.venv/
+venv/
+
+# Base de datos y temporales locales
+*.sqlite3
+data/
+*.log
+
+# Cachés de Python
+__pycache__/
+*.py[cod]
