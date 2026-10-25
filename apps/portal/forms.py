@@ -13,6 +13,11 @@ class RegistrationForm(forms.Form):
     first_name = forms.CharField(label="Nombres", max_length=150)
     last_name = forms.CharField(label="Apellidos", max_length=150)
     personal_email = forms.EmailField(label="Correo personal", max_length=150)
+    initial_status_code = forms.ChoiceField(
+        label="Estado inicial",
+        choices=(("REGULAR", "Regular"), ("PRE", "Preinscripto")),
+        initial="REGULAR",
+    )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

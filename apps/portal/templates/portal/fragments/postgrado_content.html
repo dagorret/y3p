@@ -9,6 +9,7 @@
     {% csrf_token %}
     {% include "portal/fragments/person_fields.html" %}
     <div class="sm:col-span-2"><label for="id_program" class="mb-1 block text-sm font-semibold">Carrera o programa</label>{{ form.program }}</div>
+    <div><label for="id_initial_status_code" class="mb-1 block text-sm font-semibold">Estado inicial</label>{{ form.initial_status_code }}</div>
     <div class="sm:col-span-2"><button class="rounded-lg bg-blue-700 px-5 py-3 font-semibold text-white hover:bg-blue-800" type="submit">Registrar inscripción</button></div>
   </form>
   <div id="postgrado-feedback" class="mt-4" aria-live="polite"></div>

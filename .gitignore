@@ -15,3 +15,7 @@ data/
 # Cachés de Python
 __pycache__/
 *.py[cod]
+
+# Configuración local de IDE
+.idea/
+*.iml

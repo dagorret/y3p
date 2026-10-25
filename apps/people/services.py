@@ -19,7 +19,9 @@ from .models import (
     CrossProfileConstraint,
     Identity,
     OutboxEvent,
+    SagaStatusDefinition,
     SagaTransitionRule,
+    ConfigurationError,
 )
 
 
@@ -225,7 +227,16 @@ def _apply(affiliation, rule, *, changed_by, user, reason):
 
 
 @transaction.atomic
-def create_affiliation(identity, profile_type, *, changed_by, user=None, reason="", **fields):
+def create_affiliation(
+    identity,
+    profile_type,
+    *,
+    changed_by,
+    user=None,
+    reason="",
+    initial_status_code: str | None = None,
+    **fields,
+):
     """Crea una afiliación en su estado inicial y registra el hecho de alta.
 
     Bloquea la fila de identidad para serializar altas de tipos que no permiten
@@ -235,7 +246,17 @@ def create_affiliation(identity, profile_type, *, changed_by, user=None, reason=
 
     #FSRV19-1019: Serializa validaciones de multiplicidad para una identidad.
     locked_identity = Identity.objects.select_for_update().get(pk=identity.pk)
-    status = profile_type.initial_status
+    if initial_status_code is None:
+        status = profile_type.initial_status
+    else:
+        try:
+            status = SagaStatusDefinition.objects.get(
+                profile_type=profile_type, code=initial_status_code
+            )
+        except SagaStatusDefinition.DoesNotExist:
+            raise ConfigurationError(
+                f"El estado {initial_status_code} no pertenece al tipo de perfil {profile_type.code}."
+            ) from None
     #FSRV07-1007: ConfigurationError aborta antes de crear datos si falta estado inicial.
     affiliation = Affiliation(
         identity=locked_identity,

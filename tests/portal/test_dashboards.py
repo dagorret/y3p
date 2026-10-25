@@ -68,10 +68,14 @@ class PortalDashboardTests(TestCase):
         self.assertContains(response, "grace.hopper@eco.unrc.edu.ar")
         self.assertNotContains(response, "<html")
 
-    def assert_registration(self, *, route, profile, reference_key, reference):
+    def assert_registration(
+        self, *, route, profile, reference_key, reference, status_code="REGULAR"
+    ):
+        data = self.registration_data(**{reference_key: reference})
+        data["initial_status_code"] = status_code
         response = self.client.post(
             reverse(route),
-            self.registration_data(**{reference_key: reference}),
+            data,
             HTTP_HX_REQUEST="true",
         )
         self.assertEqual(response.status_code, 200)
@@ -82,7 +86,8 @@ class PortalDashboardTests(TestCase):
         self.assertEqual(identity.first_name, "Ada")
         self.assertTrue(identity.affiliations.filter(profile_type=profile, reference=reference).exists())
         affiliation = identity.affiliations.get(profile_type=profile, reference=reference)
-        self.assertEqual(affiliation.current_status, profile.initial_status)
+        self.assertEqual(affiliation.current_status.code, status_code)
+        self.assertContains(response, affiliation.current_status.name)
         event = OutboxEvent.objects.get(affiliation=affiliation)
         self.assertEqual(event.status, OutboxEvent.Status.PENDING)
         self.assertEqual(event.action, "PROVISION")
@@ -104,6 +109,36 @@ class PortalDashboardTests(TestCase):
             reference_key="course",
             reference="Diplomatura en Datos",
         )
+
+    def test_postgrado_can_register_as_preinscripto(self):
+        self.assert_registration(
+            route="portal:postgrado",
+            profile=self.posgrado,
+            reference_key="program",
+            reference="Maestría en Sistemas",
+            status_code="PRE",
+        )
+
+    def test_extension_can_register_as_preinscripto(self):
+        self.assert_registration(
+            route="portal:extension",
+            profile=self.extension,
+            reference_key="course",
+            reference="Diplomatura en Datos",
+            status_code="PRE",
+        )
+
+    def test_invalid_initial_status_returns_error_fragment_without_writes(self):
+        data = self.registration_data()
+        data["initial_status_code"] = "INEXISTENTE"
+        response = self.client.post(
+            reverse("portal:postgrado"), data, HTTP_HX_REQUEST="true"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "No pudimos registrar la inscripción")
+        self.assertEqual(Identity.objects.count(), 0)
+        self.assertEqual(OutboxEvent.objects.count(), 0)
 
     def test_second_dashboard_registration_reuses_identity(self):
         first_identity = self.assert_registration(
