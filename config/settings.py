@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 
 from pathlib import Path
 import environ
+from .unfold import UNFOLD
 
 # Directorio base del proyecto (donde reside manage.py y el archivo .env)
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -59,6 +60,7 @@ ENABLE_LOCAL_MOCKS = env("ENABLE_LOCAL_MOCKS")
 # -----------------------------------------------------------------------------
 INSTALLED_APPS = [
     # Apps del núcleo de Django
+    "unfold",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -74,7 +76,6 @@ INSTALLED_APPS = [
     # Módulo de simulación local (solo se monta si ENABLE_LOCAL_MOCKS=True)
     *(["apps.platform_mocks"] if ENABLE_LOCAL_MOCKS else []),
 ]
-
 
 # -----------------------------------------------------------------------------
 # 4. MIDDLEWARE
