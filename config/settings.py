@@ -72,6 +72,7 @@ INSTALLED_APPS = [
     "apps.people",
     "apps.integrations",
     "apps.provisioning",
+    "apps.portal",
 
     # Módulo de simulación local (solo se monta si ENABLE_LOCAL_MOCKS=True)
     *(["apps.platform_mocks"] if ENABLE_LOCAL_MOCKS else []),

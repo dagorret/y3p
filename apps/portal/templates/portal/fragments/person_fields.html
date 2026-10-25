@@ -1,0 +1,5 @@
+<div><label for="id_dni" class="mb-1 block text-sm font-semibold">DNI</label>{{ form.dni }}</div>
+<div><label for="id_first_name" class="mb-1 block text-sm font-semibold">Nombres</label>{{ form.first_name }}</div>
+<div><label for="id_last_name" class="mb-1 block text-sm font-semibold">Apellidos</label>{{ form.last_name }}</div>
+<div><label for="id_personal_email" class="mb-1 block text-sm font-semibold">Correo personal</label>{{ form.personal_email }}</div>
+{% for field in form %}{% if field.errors %}<p class="sm:col-span-2 text-sm text-red-700">{{ field.errors }}</p>{% endif %}{% endfor %}

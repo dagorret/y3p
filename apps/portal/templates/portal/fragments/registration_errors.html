@@ -1,0 +1,5 @@
+<div class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800" role="alert">
+  <p class="font-semibold">No pudimos registrar la inscripción.</p>
+  <ul class="mt-2 list-inside list-disc">{% for error in form.non_field_errors %}<li>{{ error }}</li>{% endfor %}</ul>
+  {% for field in form %}{% for error in field.errors %}<p>{{ field.label }}: {{ error }}</p>{% endfor %}{% endfor %}
+</div>
