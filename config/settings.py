@@ -66,6 +66,10 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
 
+    # El núcleo de identidades y vinculaciones forma parte de todos los entornos.
+    "apps.people",
+    "apps.integrations",
+
     # Módulo de simulación local (solo se monta si ENABLE_LOCAL_MOCKS=True)
     *(["apps.platform_mocks"] if ENABLE_LOCAL_MOCKS else []),
 ]
