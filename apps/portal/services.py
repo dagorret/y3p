@@ -3,7 +3,12 @@
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 
-from apps.people.models import Identity, PersonalProfile, ProfileTypeDefinition
+from apps.people.models import (
+    ConfigurationError,
+    Identity,
+    PersonalProfile,
+    ProfileTypeDefinition,
+)
 from apps.people.services import create_affiliation
 
 
@@ -53,11 +58,15 @@ def register_affiliation(*, profile_code, reference, form_data):
     except ProfileTypeDefinition.DoesNotExist:
         raise ValidationError("El tipo de vinculación no está configurado.") from None
 
-    affiliation = create_affiliation(
-        identity,
-        profile_type,
-        changed_by="portal:public_registration",
-        reason=f"Inscripción a {reference}",
-        reference=reference,
-    )
+    try:
+        affiliation = create_affiliation(
+            identity,
+            profile_type,
+            changed_by="portal:public_registration",
+            reason=f"Inscripción a {reference}",
+            initial_status_code=form_data.get("initial_status_code"),
+            reference=reference,
+        )
+    except ConfigurationError as error:
+        raise ValidationError(str(error)) from error
     return identity, affiliation
