@@ -1,0 +1,26 @@
+<section class="mb-8">
+  <p class="text-sm font-semibold uppercase tracking-wider text-amber-700">Formación abierta</p>
+  <h1 class="mt-2 text-3xl font-bold text-slate-900">Extensión</h1>
+  <p class="mt-2 max-w-2xl text-slate-600">Inscribí participantes en cursos y diplomaturas de extensión.</p>
+</section>
+<section class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+  <h2 class="text-lg font-bold text-slate-900">Nueva inscripción</h2>
+  <form method="post" action="/dash/extension/" hx-post="/dash/extension/" hx-target="#extension-feedback" hx-swap="innerHTML" class="mt-5 grid gap-4 sm:grid-cols-2">
+    {% csrf_token %}
+    {% include "portal/fragments/person_fields.html" %}
+    <div class="sm:col-span-2"><label for="id_course" class="mb-1 block text-sm font-semibold">Curso o diplomatura</label>{{ form.course }}</div>
+    <div class="sm:col-span-2"><button class="rounded-lg bg-amber-600 px-5 py-3 font-semibold text-white hover:bg-amber-700" type="submit">Registrar inscripción</button></div>
+  </form>
+  <div id="extension-feedback" class="mt-4" aria-live="polite"></div>
+</section>
+<section class="mt-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+  <div class="flex items-center justify-between"><h2 class="text-lg font-bold text-slate-900">Participantes recientes</h2><span class="text-sm text-slate-500">Últimos 50</span></div>
+  <div class="mt-4 overflow-x-auto">
+    <table class="min-w-full text-left text-sm">
+      <thead class="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500"><tr><th class="px-3 py-3">DNI</th><th class="px-3 py-3">Participante</th><th class="px-3 py-3">Correo</th><th class="px-3 py-3">Curso</th><th class="px-3 py-3">Estado</th></tr></thead>
+      <tbody id="extension-rows" class="divide-y divide-slate-100">
+        {% for affiliation in affiliations %}{% include "portal/fragments/extension_row.html" %}{% empty %}<tr id="extension-empty"><td colspan="5" class="px-3 py-6 text-center text-slate-500">Todavía no hay participantes.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>

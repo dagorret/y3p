@@ -62,7 +62,9 @@ def _emit_outbox_event(affiliation, status):
         "full_name": f"{identity.first_name} {identity.last_name}".strip(),
         "recipient": recipient,
         "course_shortname": (
-            affiliation.reference if affiliation.profile_type.code == "ALUMNO" else ""
+            affiliation.reference
+            if affiliation.profile_type.code in {"ALUMNO", "POSGRADO", "EXTENSION"}
+            else ""
         ),
         "group_name": "",
         "modality": affiliation.modality,

@@ -1,0 +1,25 @@
+{% if query %}
+  {% if identities %}
+    <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      {% for identity in identities %}
+        {% for affiliation in identity.grade_affiliations %}
+          <article class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div class="flex items-start justify-between gap-3">
+              <h2 class="text-lg font-bold text-slate-900">{{ identity.first_name }} {{ identity.last_name }}</h2>
+              <span class="rounded-full {% if affiliation.is_active %}bg-emerald-100 text-emerald-800{% else %}bg-slate-100 text-slate-600{% endif %} px-3 py-1 text-xs font-semibold">{{ affiliation.current_status.name }}</span>
+            </div>
+            <dl class="mt-4 space-y-2 text-sm">
+              <div class="flex gap-2"><dt class="font-semibold text-slate-500">DNI</dt><dd>{{ identity.identifier }}</dd></div>
+              <div class="flex gap-2"><dt class="font-semibold text-slate-500">UPN</dt><dd>{{ identity.institutional_upn|default:"Pendiente" }}</dd></div>
+              <div class="flex gap-2"><dt class="font-semibold text-slate-500">Carrera</dt><dd>{{ affiliation.reference|default:"Sin especificar" }}</dd></div>
+            </dl>
+          </article>
+        {% endfor %}
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">No encontramos vinculaciones de Grado para esa búsqueda.</p>
+  {% endif %}
+{% else %}
+  <p class="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-500">Ingresá un DNI o apellido para comenzar la búsqueda.</p>
+{% endif %}

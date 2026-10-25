@@ -1,0 +1,16 @@
+{% extends "portal/base.html" %}
+{% block title %}Administración · Portal Y3P{% endblock %}
+{% block content %}
+  <section class="mb-8">
+    <p class="text-sm font-semibold uppercase tracking-wider text-blue-700">Consulta de Grado</p>
+    <h1 class="mt-2 text-3xl font-bold text-slate-900">Administración</h1>
+    <p class="mt-2 max-w-2xl text-slate-600">Buscá una persona por DNI, nombre o apellido para consultar sus vinculaciones de grado.</p>
+  </section>
+  <label for="person-search" class="mb-2 block text-sm font-semibold text-slate-700">DNI o apellido</label>
+  <input id="person-search" name="q" type="search" value="{{ query }}" autocomplete="off" placeholder="Ej.: 30123456 o Pérez"
+         class="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 shadow-sm outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
+         hx-get="/dash/administracion/" hx-trigger="keyup changed delay:300ms" hx-target="#administracion-results" hx-swap="innerHTML">
+  <div id="administracion-results" class="mt-6" aria-live="polite">
+    {% include "portal/fragments/administracion_results.html" %}
+  </div>
+{% endblock %}

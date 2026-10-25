@@ -1,0 +1,26 @@
+<section class="mb-8">
+  <p class="text-sm font-semibold uppercase tracking-wider text-blue-700">Registro académico</p>
+  <h1 class="mt-2 text-3xl font-bold text-slate-900">Alumnos de Posgrado</h1>
+  <p class="mt-2 max-w-2xl text-slate-600">Registrá una persona y el programa de posgrado al que se incorpora.</p>
+</section>
+<section class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+  <h2 class="text-lg font-bold text-slate-900">Nueva inscripción</h2>
+  <form method="post" action="/dash/postgrado/" hx-post="/dash/postgrado/" hx-target="#postgrado-feedback" hx-swap="innerHTML" class="mt-5 grid gap-4 sm:grid-cols-2">
+    {% csrf_token %}
+    {% include "portal/fragments/person_fields.html" %}
+    <div class="sm:col-span-2"><label for="id_program" class="mb-1 block text-sm font-semibold">Carrera o programa</label>{{ form.program }}</div>
+    <div class="sm:col-span-2"><button class="rounded-lg bg-blue-700 px-5 py-3 font-semibold text-white hover:bg-blue-800" type="submit">Registrar inscripción</button></div>
+  </form>
+  <div id="postgrado-feedback" class="mt-4" aria-live="polite"></div>
+</section>
+<section class="mt-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+  <div class="flex items-center justify-between"><h2 class="text-lg font-bold text-slate-900">Inscripciones recientes</h2><span class="text-sm text-slate-500">Últimas 50</span></div>
+  <div class="mt-4 overflow-x-auto">
+    <table class="min-w-full text-left text-sm">
+      <thead class="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500"><tr><th class="px-3 py-3">DNI</th><th class="px-3 py-3">Alumno</th><th class="px-3 py-3">Correo</th><th class="px-3 py-3">Programa</th><th class="px-3 py-3">Estado</th></tr></thead>
+      <tbody id="postgrado-rows" class="divide-y divide-slate-100">
+        {% for affiliation in affiliations %}{% include "portal/fragments/postgrado_row.html" %}{% empty %}<tr id="postgrado-empty"><td colspan="5" class="px-3 py-6 text-center text-slate-500">Todavía no hay inscripciones.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
