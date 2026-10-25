@@ -9,7 +9,12 @@ import threading
 import time
 from urllib.parse import quote
 
-from apps.integrations.dataclasses import GraphUserResult, LicenseResult
+from apps.integrations.dataclasses import (
+    GraphAccountResult,
+    GraphUserResult,
+    LicenseResult,
+    PasswordSetResult,
+)
 from apps.integrations.exceptions import (
     AuthenticationError,
     ConfigurationError,
@@ -160,6 +165,20 @@ class MicrosoftGraphClient(BaseIntegrationClient):
         self._raise_for_status(response, resource=path)
         return response
 
+    def _write(self, method, path, *, json=None):
+        """Send an authenticated Graph mutation through the shared status mapper.
+
+        This helper keeps all Graph writes on the same timeout, auth, transport
+        error and structured HTTP error path. It must only be called after the
+        caller's dry-run interception, so simulated actions never acquire a token.
+        """
+
+        #FGRAPH28-1028: All mutations pass through the same authenticated HTTP boundary.
+        if method.upper() not in {"POST", "PATCH", "DELETE"}:
+            #FGRAPH28-1028: Reject a non-mutating or unsupported verb at this boundary.
+            raise ValueError("_write solo admite POST, PATCH y DELETE.")
+        return self._graph_request(method, path, json=json)
+
     def get_user(self, upn: str) -> GraphUserResult | None:
         """Busca un usuario por UPN y retorna ``None`` solo ante HTTP 404."""
 
@@ -223,12 +242,13 @@ class MicrosoftGraphClient(BaseIntegrationClient):
             "userPrincipalName": upn,
             "givenName": first_name,
             "surname": last_name,
+            "usageLocation": "AR",
             "passwordProfile": {
                 "password": initial_password,
                 "forceChangePasswordNextSignIn": force_change_password,
             },
         }
-        response = self._graph_request("POST", "users", json=payload)
+        response = self._write("POST", "users", json=payload)
         body = self._json_object(response, "usuario Graph")
         return GraphUserResult(
             id=str(body.get("id", "")),
@@ -256,7 +276,7 @@ class MicrosoftGraphClient(BaseIntegrationClient):
         payload = {"addLicenses": [{"skuId": sku_id}], "removeLicenses": []}
         for attempt in range(self.max_rate_limit_retries + 1):
             try:
-                self._graph_request(
+                self._write(
                     "POST",
                     f"users/{quote(user_id_or_upn, safe='')}/assignLicense",
                     json=payload,
@@ -285,7 +305,7 @@ class MicrosoftGraphClient(BaseIntegrationClient):
             #FGRAPH16-1016: Bypass impide mutación remota de licencias.
             return LicenseResult(user_id_or_upn, sku_id, assigned=False, simulated=True)
         payload = {"addLicenses": [], "removeLicenses": [sku_id]}
-        self._graph_request(
+        self._write(
             "POST",
             f"users/{quote(user_id_or_upn, safe='')}/assignLicense",
             json=payload,
@@ -301,8 +321,52 @@ class MicrosoftGraphClient(BaseIntegrationClient):
         if self._intercept_dry_run("delete_user", user_id_or_upn=user_id_or_upn):
             #FGRAPH18-1018: Bypass impide DELETE y adquisición de token.
             return True
-        self._graph_request("DELETE", f"users/{quote(user_id_or_upn, safe='')}")
+        self._write("DELETE", f"users/{quote(user_id_or_upn, safe='')}")
         return True
+
+    def disable_user(self, user_identifier: str) -> GraphAccountResult:
+        """Disable an Entra account with PATCH and an explicit simulation DTO.
+
+        The operation is idempotent: setting ``accountEnabled`` to false more
+        than once preserves the desired state. Dry-run exits before OAuth or
+        HTTP, so tests and local workflows cannot accidentally mutate Graph.
+        """
+
+        if not user_identifier:
+            #FGRAPH29-1029: A user identifier is required to construct the resource path.
+            raise ValueError("user_identifier no puede estar vacío.")
+        if self._intercept_dry_run("disable_user", user_identifier=user_identifier):
+            #FGRAPH30-1030: Simulation prevents token acquisition and PATCH.
+            return GraphAccountResult(user_identifier, enabled=False, simulated=True)
+        self._write(
+            "PATCH",
+            f"users/{quote(user_identifier, safe='')}",
+            json={"accountEnabled": False},
+        )
+        return GraphAccountResult(user_identifier, enabled=False)
+
+    def set_temporary_password(self, user_identifier: str, password: str) -> PasswordSetResult:
+        """Set a one-time password without ever returning or persisting its value."""
+
+        if not user_identifier or not password:
+            #FGRAPH31-1031: Missing user or password is rejected before the write path.
+            raise ValueError("user_identifier y password son obligatorios.")
+        if self._intercept_dry_run(
+            "set_temporary_password", user_identifier=user_identifier, password=password
+        ):
+            #FGRAPH32-1032: Simulated credentials do not reach OAuth or Graph.
+            return PasswordSetResult(user_identifier, simulated=True)
+        self._write(
+            "PATCH",
+            f"users/{quote(user_identifier, safe='')}",
+            json={
+                "passwordProfile": {
+                    "password": password,
+                    "forceChangePasswordNextSignIn": True,
+                }
+            },
+        )
+        return PasswordSetResult(user_identifier)
 
     def get_teams_activity_d180(self) -> bytes:
         """Descarga el CSV del informe de actividad de Teams de los últimos 180 días."""

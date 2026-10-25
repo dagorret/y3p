@@ -6,6 +6,8 @@ registra los cambios como filas append-only. Las validaciones entre filas viven
 en ``clean()`` y las restricciones locales se delegan a PostgreSQL.
 """
 
+import uuid
+
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -99,6 +101,24 @@ class SagaStatusDefinition(models.Model):
         null=True,
         blank=True,
         help_text="Días de vigencia máxima en este estado antes de disparar vencimiento por TTL.",
+    )
+
+    class ProvisioningAction(models.TextChoices):
+        """Intenciones externas emitidas al ingresar a un estado."""
+
+        PROVISION = "PROVISION", "Aprovisionar"
+        SUSPEND = "SUSPEND", "Suspender"
+        TERMINATE = "TERMINATE", "Dar de baja"
+
+    provisioning_action = models.CharField(
+        max_length=16,
+        choices=ProvisioningAction.choices,
+        blank=True,
+        help_text="Acción de aprovisionamiento emitida al entrar a este estado.",
+    )
+    requires_m365_license = models.BooleanField(
+        default=False,
+        help_text="Indica si una afiliación activa en este estado requiere licencia M365.",
     )
 
     class Meta:
@@ -492,6 +512,68 @@ class Affiliation(models.Model):
 # ======================================================================
 # CAPA 3: AUDITORÍA INMUTABLE (Append-only)
 # ======================================================================
+
+
+class OutboxEvent(models.Model):
+    """Durable provisioning command emitted in the producer transaction.
+
+    The increasing primary key supplies strict FIFO ordering for a single
+    identity while ``public_id`` is safe to expose externally. Foreign keys
+    preserve the source context and prevent deleting referenced domain rows.
+    Checkpoint JSON may contain provider outcomes but never credentials or
+    temporary passwords. State, lock, retry and heartbeat fields are written
+    in short transactions by the dispatcher and saga worker.
+    """
+
+    class Status(models.TextChoices):
+        """Persisted lifecycle values for dispatch and recovery."""
+
+        PENDING = "PENDING", "Pendiente"
+        PROCESSING = "PROCESSING", "En proceso"
+        WAITING_SUBTASK = "WAITING_SUBTASK", "Esperando Moodle"
+        RETRY_SCHEDULED = "RETRY_SCHEDULED", "Reintento programado"
+        SUCCEEDED = "SUCCEEDED", "Completado"
+        SIMULATED = "SIMULATED", "Completado en simulación"
+        FAILED = "FAILED", "Fallo definitivo"
+
+    id = models.BigAutoField(primary_key=True)
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    action = models.CharField(
+        max_length=16, choices=SagaStatusDefinition.ProvisioningAction.choices
+    )
+    identity = models.ForeignKey(
+        Identity, on_delete=models.PROTECT, related_name="outbox_events"
+    )
+    affiliation = models.ForeignKey(
+        Affiliation, on_delete=models.PROTECT, related_name="outbox_events"
+    )
+    payload = models.JSONField(default=dict)
+    step_results = models.JSONField(default=dict, blank=True)
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.PENDING, db_index=True
+    )
+    attempts = models.PositiveIntegerField(default=0)
+    max_attempts = models.PositiveIntegerField(default=10)
+    last_error = models.TextField(blank=True)
+    locked_at = models.DateTimeField(null=True, blank=True)
+    heartbeat_at = models.DateTimeField(null=True, blank=True)
+    retry_after = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    processed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        """Define the table and indexes for claiming and identity FIFO."""
+
+        db_table = "people_outbox_events"
+        indexes = [
+            models.Index(fields=["status", "retry_after"], name="ix_outbox_status_retry"),
+            models.Index(fields=["identity", "id"], name="ix_outbox_identity_order"),
+        ]
+
+    def __str__(self):
+        """Expose a PII-free summary suitable for administration and logs."""
+
+        return f"OutboxEvent({self.public_id}, {self.action}, {self.status})"
 
 
 class AffiliationStatusHistory(models.Model):

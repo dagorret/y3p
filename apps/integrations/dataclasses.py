@@ -27,6 +27,23 @@ class LicenseResult:
 
 
 @dataclass(frozen=True)
+class GraphAccountResult:
+    """Confirmed enabled state for an Entra user, with simulation marker."""
+
+    user_identifier: str
+    enabled: bool
+    simulated: bool = False
+
+
+@dataclass(frozen=True)
+class PasswordSetResult:
+    """Confirms a temporary password mutation without retaining the secret."""
+
+    user_identifier: str
+    simulated: bool = False
+
+
+@dataclass(frozen=True)
 class MoodleUserResult:
     """Resultado tipado de usuario Moodle."""
 

@@ -2,6 +2,7 @@
 
 import smtplib
 import ssl
+from html import escape
 from email.message import EmailMessage
 from email.utils import make_msgid
 
@@ -79,7 +80,10 @@ class MailerClient(BaseIntegrationClient):
         """
 
         if self._intercept_dry_run(
-            "send_email", recipient=recipient, subject=subject, text_body=text_body
+            "send_email",
+            recipient=recipient,
+            subject=subject,
+            text_body_length=len(text_body),
         ):
             #FMAIL02-4002: Bypass ocurre antes del contexto SSL y del socket SMTP.
             return MailDeliveryResult(
@@ -138,7 +142,9 @@ class MailerClient(BaseIntegrationClient):
                     subject=subject,
                     success=False,
                     message_id=message["Message-ID"],
-                    error_message="El servidor SMTP rechazó uno o más destinatarios.",
+                    error_message=(
+                        "InvalidRecipientError: el servidor SMTP rechazó uno o más destinatarios."
+                    ),
                 )
             return MailDeliveryResult(
                 recipient=recipient,
@@ -164,6 +170,33 @@ class MailerClient(BaseIntegrationClient):
                 simulated=False,
                 error_message=f"{error.__class__.__name__}: {error}",
             )
+
+    def send_credentials_email(self, recipient: str, full_name: str, upn: str, password: str):
+        """Render and send initial account credentials without logging the secret.
+
+        The caller owns the ephemeral password lifetime. This method builds the
+        only message body containing it, delegates transport handling to
+        ``send_email`` and returns the delivery DTO; it never stores the value.
+        """
+
+        subject = "Credenciales de acceso institucional"
+        text_body = (
+            f"Hola {full_name},\n\n"
+            "Tu cuenta institucional está disponible.\n"
+            f"Usuario: {upn}\n"
+            f"Contraseña temporal: {password}\n\n"
+            "Al iniciar sesión se te pedirá cambiar la contraseña. "
+            "Si recibiste más de un mensaje, usá el más reciente."
+        )
+        html_body = (
+            f"<p>Hola {escape(full_name)},</p><p>Tu cuenta institucional está disponible.</p>"
+            f"<p>Usuario: <strong>{escape(upn)}</strong><br>"
+            f"Contraseña temporal: <strong>{escape(password)}</strong></p>"
+            "<p>Al iniciar sesión se te pedirá cambiar la contraseña. "
+            "Si recibiste más de un mensaje, usá el más reciente.</p>"
+        )
+        #FMAIL15-4015: Secret is passed only to the SMTP body; structured logs retain length only.
+        return self.send_email(recipient, subject, text_body, html_body)
 
     def _login_if_configured(self, server):
         """Autentica solo si se configuró usuario; SMTP anónimo sigue en TLS."""

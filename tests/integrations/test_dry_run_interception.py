@@ -33,6 +33,10 @@ class DryRunInterceptionTests(unittest.TestCase):
             license_add = graph.assign_license("ada@example.edu", "sku-a1")
             license_remove = graph.remove_license("ada@example.edu", "sku-a1")
             deleted = graph.delete_user("ada@example.edu")
+            disabled = graph.disable_user("ada@example.edu")
+            password_set = graph.set_temporary_password(
+                user_identifier="ada@example.edu", password="DoNotLog-Temporary!"
+            )
 
             moodle_user = moodle.create_user(
                 "ada", "Ada", "Lovelace", "ada@example.edu"
@@ -47,11 +51,17 @@ class DryRunInterceptionTests(unittest.TestCase):
             chained_group_id = moodle.get_or_create_group(-1, "COMISION 2")
 
             mail = mailer.send_email("ada@example.edu", "Alta", "Bienvenida")
+            credentials_mail = mailer.send_credentials_email(
+                "ada@example.edu", "Ada Lovelace", "ada@example.edu", "DoNotLog-Temporary!"
+            )
 
         self.assertTrue(graph_user.simulated)
         self.assertTrue(license_add.simulated)
         self.assertTrue(license_remove.simulated)
         self.assertTrue(deleted)
+        self.assertTrue(disabled.simulated)
+        self.assertFalse(disabled.enabled)
+        self.assertTrue(password_set.simulated)
         self.assertTrue(moodle_user.simulated)
         self.assertTrue(enrollment.simulated)
         self.assertTrue(simulated_enrollment.simulated)
@@ -63,6 +73,8 @@ class DryRunInterceptionTests(unittest.TestCase):
         self.assertEqual(chained_group_id, -1)
         self.assertTrue(mail.success)
         self.assertTrue(mail.simulated)
+        self.assertTrue(credentials_mail.success)
+        self.assertTrue(credentials_mail.simulated)
         http_post.assert_not_called()
         http_delete.assert_not_called()
         http_request.assert_not_called()

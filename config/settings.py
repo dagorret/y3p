@@ -69,6 +69,7 @@ INSTALLED_APPS = [
     # El núcleo de identidades y vinculaciones forma parte de todos los entornos.
     "apps.people",
     "apps.integrations",
+    "apps.provisioning",
 
     # Módulo de simulación local (solo se monta si ENABLE_LOCAL_MOCKS=True)
     *(["apps.platform_mocks"] if ENABLE_LOCAL_MOCKS else []),
@@ -168,5 +169,39 @@ STATICFILES_DIRS = [BASE_DIR / "static"] if (BASE_DIR / "static").exists() else 
 MAILERS = {
     "default": {
         "BACKEND": "django.core.mail.backends.console.EmailBackend",
+    },
+}
+
+# ----------------------------------------------------------------------------
+# 11. Aprovisionamiento asíncrono y clientes Lucy
+# ----------------------------------------------------------------------------
+LUCY_DRY_RUN = env.bool("LUCY_DRY_RUN", default=False)
+LUCY_M365_TENANT_ID = env("M365_TENANT_ID", default="")
+LUCY_M365_CLIENT_ID = env("M365_CLIENT_ID", default="")
+LUCY_M365_CLIENT_SECRET = env("M365_CLIENT_SECRET", default="")
+LUCY_M365_SKU_ID = env("M365_A1_SKU_ID", default="")
+LUCY_MOODLE_BASE_URL = env("MOODLE_BASE_URL", default="")
+LUCY_MOODLE_TOKEN = env("MOODLE_WSTOKEN", default="")
+LUCY_SMTP_HOST = env("SMTP_HOST", default="")
+LUCY_SMTP_PORT = env.int("SMTP_PORT", default=587)
+LUCY_SMTP_USERNAME = env("SMTP_USERNAME", default="")
+LUCY_SMTP_PASSWORD = env("SMTP_PASSWORD", default="")
+LUCY_SMTP_FROM_EMAIL = env("SMTP_FROM_EMAIL", default="")
+
+CELERY_BROKER_URL = env("CELERY_BROKER_URL", default="redis://localhost:6379/0")
+CELERY_TASK_ROUTES = {
+    "provisioning.dispatch_outbox": {"queue": "provisioning"},
+    "provisioning.run_saga": {"queue": "provisioning"},
+    "provisioning.moodle_step": {"queue": "moodle"},
+    "provisioning.sweep_stuck_events": {"queue": "provisioning"},
+}
+CELERY_BEAT_SCHEDULE = {
+    "provisioning-dispatch-outbox-every-minute": {
+        "task": "provisioning.dispatch_outbox",
+        "schedule": 60.0,
+    },
+    "provisioning-sweep-stuck-events-every-five-minutes": {
+        "task": "provisioning.sweep_stuck_events",
+        "schedule": 300.0,
     },
 }
