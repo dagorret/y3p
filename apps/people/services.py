@@ -8,6 +8,8 @@ transacción atómica; las transiciones y renovaciones bloquean la afiliación c
 
 from datetime import timedelta
 
+from celery import current_app
+from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
 from django.utils import timezone
 
@@ -16,6 +18,7 @@ from .models import (
     AffiliationStatusHistory,
     CrossProfileConstraint,
     Identity,
+    OutboxEvent,
     SagaTransitionRule,
 )
 
@@ -28,6 +31,55 @@ class TransitionError(Exception):
     """
 
     #FSRV00-1000: Error de negocio de transición.
+
+
+def _emit_outbox_event(affiliation, status):
+    """Persist an intent and schedule dispatch after the producer commits.
+
+    The payload captures only execution inputs; current cross-affiliation
+    decisions remain live ORM reads in the consumer. Inserting the outbox row
+    in the caller's transaction guarantees rollback atomicity. The commit hook
+    only nudges Celery; periodic dispatch can recover if the broker is down.
+    """
+
+    if not status.provisioning_action:
+        #FOUT01-5001: States without an external action produce no outbox row.
+        return None
+
+    identity = affiliation.identity
+    try:
+        recipient = identity.personal_profile.personal_email
+    except ObjectDoesNotExist:
+        #FOUT02-5002: Personal contact is optional, so store an empty recipient.
+        recipient = ""
+
+    #FOUT03-5003: Credentials and temporary passwords never enter durable payload data.
+    payload = {
+        "identifier": identity.identifier,
+        "upn": identity.institutional_upn or "",
+        "first_name": identity.first_name,
+        "last_name": identity.last_name,
+        "full_name": f"{identity.first_name} {identity.last_name}".strip(),
+        "recipient": recipient,
+        "course_shortname": (
+            affiliation.reference if affiliation.profile_type.code == "ALUMNO" else ""
+        ),
+        "group_name": "",
+        "modality": affiliation.modality,
+        "provisioning_status": status.code,
+        "requires_m365_license": status.requires_m365_license,
+    }
+    event = OutboxEvent.objects.create(
+        action=status.provisioning_action,
+        identity=identity,
+        affiliation=affiliation,
+        payload=payload,
+    )
+    #FOUT04-5004: The callback runs only after the database commit; row durability precedes broker I/O.
+    transaction.on_commit(
+        lambda: current_app.send_task("provisioning.dispatch_outbox"), robust=True
+    )
+    return event
 
 
 def _ttl(status):
@@ -166,6 +218,7 @@ def _apply(affiliation, rule, *, changed_by, user, reason):
         changed_by_user=user,
         reason=reason,
     )
+    _emit_outbox_event(affiliation, rule.to_status)
     return affiliation
 
 
@@ -201,6 +254,7 @@ def create_affiliation(identity, profile_type, *, changed_by, user=None, reason=
         changed_by_user=user,
         reason=reason or "Alta",
     )
+    _emit_outbox_event(affiliation, status)
     return affiliation
 
 
