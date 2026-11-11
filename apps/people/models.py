@@ -118,9 +118,7 @@ class SagaStatusDefinition(models.Model):
     )
     class TargetPlatform(models.TextChoices):
         MOODLE = "MOODLE", "Moodle FCE"
-        EVELIA = "EVELIA", "Evelia UNRC"
-        CANVAS = "CANVAS", "Canvas LMS"
-        OTRO = "OTRO", "Otro"
+        OTRO = "OTRO", "Otro / Sin plataforma activa"
 
     target_platform = models.CharField(
         max_length=20,

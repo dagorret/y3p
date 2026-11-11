@@ -22,6 +22,7 @@ from apps.integrations.exceptions import (
     RateLimitExceededError,
     RemoteServiceUnavailableError,
 )
+from apps.integrations.models import AdmissionCourseRule
 from apps.people.models import (
     Affiliation,
     Identity,
@@ -46,6 +47,12 @@ class OutboxAndSagaTests(TransactionTestCase):
     def setUp(self):
         """Ensure minimal seeded graph survives TransactionTestCase flush cycles."""
 
+        # Existing saga regressions use a synthetic admission career/course.
+        # reset_sequences can restart IDs while migration seed rows still exist.
+        AdmissionCourseRule.objects.all().delete()
+        AdmissionCourseRule.objects.get_or_create(
+            career_code='9040', defaults={'target_courses': '9040'},
+        )
         self.profile, _ = ProfileTypeDefinition.objects.get_or_create(
             code="ALUMNO",
             defaults={"name": "Alumno", "allows_multiple_instances": True},

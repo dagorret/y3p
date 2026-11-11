@@ -20,6 +20,7 @@ from apps.integrations.exceptions import (
 from apps.integrations.services.graph import MicrosoftGraphClient
 from apps.integrations.services.mailer import MailerClient
 from apps.integrations.services.moodle import MoodleRestClient
+from apps.integrations.models import AdmissionCourseRule
 from apps.people.models import Affiliation, OutboxEvent
 
 
@@ -239,6 +240,17 @@ def _perform_moodle(event, moodle):
     upn = payload.get("upn", "")
     shortname = payload.get("course_shortname", "")
     if event.action == "PROVISION":
+        profile_code = payload.get("profile_type_code", event.affiliation.profile_type.code)
+        status_code = payload.get("provisioning_status", event.affiliation.current_status.code)
+        if profile_code == "ALUMNO" and status_code == "INGRE":
+            shortnames, group_name = AdmissionCourseRule.resolve_courses(
+                career=payload.get("career_code", event.affiliation.reference),
+                modality=payload.get("modality", event.affiliation.modality),
+                commission=payload.get("commission") or payload.get("group_name") or "",
+            )
+        else:
+            shortnames = [shortname] if shortname else []
+            group_name = payload.get("group_name")
         user = moodle.create_user(
             username=upn,
             first_name=payload["first_name"],
@@ -246,23 +258,31 @@ def _perform_moodle(event, moodle):
             email=upn,
             auth="oidc",
         )
-        if not shortname:
+        if not shortnames:
             return {"status": "SKIPPED_NO_COURSE", "simulated": user.simulated, "details": {}}
-        course = moodle.get_course_by_shortname(shortname)
-        if course is None:
-            #FSRV18-6018: Missing course is a typed configuration/resource error, not a false success.
-            raise ResourceNotFoundError(f"No existe el curso Moodle {shortname}.")
-        enrollment = moodle.enrol_user(user.id, int(course["id"]), role_id=5)
-        group_name = payload.get("group_name")
-        simulated = user.simulated or enrollment.simulated
-        if group_name:
-            group_id = moodle.get_or_create_group(int(course["id"]), group_name)
-            group = moodle.add_user_to_group(group_id, user.id, course_id=int(course["id"]))
-            simulated = simulated or group.simulated
+        simulated = user.simulated
+        enrollments = []
+        for shortname in shortnames:
+            course = moodle.get_course_by_shortname(shortname)
+            if course is None:
+                #FSRV18-6018: Missing course is a typed resource error, not a false success.
+                raise ResourceNotFoundError(f"No existe el curso Moodle {shortname}.")
+            course_id = int(course["id"])
+            enrollment = moodle.enrol_user(user.id, course_id, role_id=5)
+            if not enrollment.success:
+                raise IntegrationError(f"No se confirmó la matrícula en Moodle {shortname}.")
+            simulated = simulated or enrollment.simulated
+            if group_name:
+                group_id = moodle.get_or_create_group(course_id, group_name)
+                group = moodle.add_user_to_group(group_id, user.id, course_id=course_id)
+                if not group.success:
+                    raise IntegrationError(f"No se confirmó el grupo en Moodle {shortname}.")
+                simulated = simulated or group.simulated
+            enrollments.append({"shortname": shortname, "course_id": course_id, "group": group_name})
         return {
             "status": "CONFIRMED",
             "simulated": simulated,
-            "details": {"enrolled": enrollment.success},
+            "details": {"enrolled": True, "courses": enrollments},
         }
 
     user = moodle.get_user_by_username(upn)
