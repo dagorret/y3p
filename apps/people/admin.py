@@ -7,6 +7,7 @@ from .models import (
     Affiliation,
     AffiliationStatusHistory,
     CrossProfileConstraint,
+    DigitalAccount,
     Identity,
     OutboxEvent,
     ProfileTypeDefinition,
@@ -38,12 +39,34 @@ class AffiliationInline(TabularInline):
         return False
 
 
+class DigitalAccountInline(TabularInline):
+    """Audita las cuentas asociadas sin habilitar cambios de aprovisionamiento."""
+
+    model = DigitalAccount
+    fields = (
+        "platform", "account_identifier", "is_active", "content_hash",
+        "created_at", "updated_at",
+    )
+    readonly_fields = fields
+    extra = 0
+    can_delete = False
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
 @admin.register(Identity)
 class IdentityAdmin(ModelAdmin):
     list_display = ("identifier", "first_name", "last_name", "institutional_upn")
     search_fields = ("identifier", "first_name", "last_name", "institutional_upn")
     list_select_related = ()
-    inlines = (AffiliationInline,)
+    inlines = (AffiliationInline, DigitalAccountInline)
     readonly_fields = ("category", "identifier", "first_name", "last_name", "institutional_upn", "created_at", "updated_at")
 
     def get_queryset(self, request):
@@ -129,7 +152,19 @@ class SuperuserConfigurationAdmin(ModelAdmin):
         return is_superuser(request)
 
 
+@admin.register(SagaStatusDefinition)
+class SagaStatusDefinitionAdmin(SuperuserConfigurationAdmin):
+    fieldsets = (
+        ("Estado y ciclo de vida", {"fields": (
+            "profile_type", "code", "name", "is_initial", "is_terminal", "default_ttl_days",
+        )}),
+        ("Plataforma y aprovisionamiento", {"fields": (
+            "target_platform", "requires_collaboration_account",
+            "requires_collaboration_license", "provisioning_action",
+        )}),
+    )
+
+
 admin.site.register(ProfileTypeDefinition, SuperuserConfigurationAdmin)
-admin.site.register(SagaStatusDefinition, SuperuserConfigurationAdmin)
 admin.site.register(SagaTransitionRule, SuperuserConfigurationAdmin)
 admin.site.register(CrossProfileConstraint, SuperuserConfigurationAdmin)

@@ -8,9 +8,12 @@ from django.urls import reverse
 
 from django.contrib import admin
 
-from apps.people.admin import AffiliationHistoryInline, AffiliationInline, OutboxEventInline
+from apps.people.admin import (
+    AffiliationHistoryInline, AffiliationInline, DigitalAccountInline, OutboxEventInline,
+)
 from apps.people.models import (
     Affiliation,
+    DigitalAccount,
     Identity,
     OutboxEvent,
     ProfileTypeDefinition,
@@ -20,6 +23,32 @@ from apps.provisioning.admin import OutboxEventAdmin
 
 
 class OutboxAdminTests(TestCase):
+    def test_identity_shows_digital_accounts_as_read_only(self):
+        DigitalAccount.objects.create(
+            identity=self.identity, platform="GOOGLE", account_identifier="auditoria@example.test"
+        )
+        response = self.client.get(reverse("admin:people_identity_change", args=[self.identity.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "auditoria@example.test")
+        request = RequestFactory().get("/admin/")
+        request.user = self.user
+        inline = DigitalAccountInline(Identity, admin.site)
+        self.assertFalse(inline.has_add_permission(request))
+        self.assertFalse(inline.has_change_permission(request))
+        self.assertFalse(inline.has_delete_permission(request))
+
+    def test_status_admin_exposes_generic_provisioning_fields(self):
+        response = self.client.get(
+            reverse("admin:people_sagastatusdefinition_change", args=[self.status.pk])
+        )
+        self.assertEqual(response.status_code, 200)
+        for name in (
+            "target_platform", "requires_collaboration_account",
+            "requires_collaboration_license", "provisioning_action",
+        ):
+            self.assertContains(response, f'name="{name}"')
+        self.assertNotContains(response, 'name="requires_m365_license"')
+
     def setUp(self):
         self.user = get_user_model().objects.create_superuser(
             username="admin-test", email="admin@example.test", password="secret"

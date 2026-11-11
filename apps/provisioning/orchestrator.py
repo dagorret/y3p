@@ -151,7 +151,7 @@ def _run_suspend(event_id, event, graph, moodle, simulated, enqueue_moodle):
     other_active = Affiliation.objects.filter(
         identity_id=event.identity_id, is_active=True
     ).exclude(pk=event.affiliation_id).select_related("current_status")
-    still_required = other_active.filter(current_status__requires_m365_license=True).exists()
+    still_required = other_active.filter(current_status__requires_collaboration_license=True).exists()
     account_still_active = other_active.exists()
     upn = event.payload.get("upn", "")
     sku_id = settings.LUCY_M365_SKU_ID

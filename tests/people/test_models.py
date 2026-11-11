@@ -4,7 +4,49 @@ from django.db import IntegrityError, transaction
 from django.test import TestCase
 
 from apps.people.identifiers import calculate_content_hash
-from apps.people.models import DigitalAccount, Identity
+from apps.people.models import DigitalAccount, Identity, ProfileTypeDefinition, SagaStatusDefinition
+
+
+class CollaborationStatusTests(TestCase):
+    def setUp(self):
+        self.profile = ProfileTypeDefinition.objects.create(code="TEST_COLLAB", name="Prueba")
+
+    def test_legacy_license_alias_preserves_create_update_and_partial_save(self):
+        status = SagaStatusDefinition.objects.create(
+            profile_type=self.profile, code="ACT", name="Activo", requires_m365_license=True
+        )
+        status.refresh_from_db()
+        self.assertTrue(status.requires_collaboration_license)
+        self.assertTrue(status.requires_m365_license)
+        status.requires_m365_license = False
+        status.save(update_fields=["requires_m365_license"])
+        status.refresh_from_db()
+        self.assertFalse(status.requires_collaboration_license)
+        status, created = SagaStatusDefinition.objects.update_or_create(
+            profile_type=self.profile, code="ACT", defaults={"requires_m365_license": True}
+        )
+        self.assertFalse(created)
+        status.refresh_from_db()
+        self.assertTrue(status.requires_collaboration_license)
+        status.requires_collaboration_license = False
+        status.save(update_fields=["requires_collaboration_license"])
+        status.refresh_from_db()
+        self.assertFalse(status.requires_m365_license)
+
+    def test_platform_and_account_flags_are_independent(self):
+        status = SagaStatusDefinition.objects.create(
+            profile_type=self.profile, code="ACT", name="Activo"
+        )
+        self.assertEqual(status.target_platform, "MOODLE")
+        self.assertTrue(status.requires_collaboration_account)
+        self.assertFalse(status.requires_collaboration_license)
+        status.target_platform = "EVELIA"
+        status.requires_collaboration_account = False
+        status.full_clean()
+        status.save()
+        status.refresh_from_db()
+        self.assertEqual(status.target_platform, "EVELIA")
+        self.assertFalse(status.requires_collaboration_account)
 
 
 class DigitalAccountTests(TestCase):
