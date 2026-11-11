@@ -1,3 +1,3 @@
 from django.shortcuts import render
 
-# Create your views here.
+# La simulación se expone mediante clientes locales inyectables, sin vistas públicas.

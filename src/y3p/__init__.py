@@ -1,2 +1,2 @@
 def main() -> None:
-    print("Hello from y3p!")
+    print("Sistema Y3P / MT^3.")

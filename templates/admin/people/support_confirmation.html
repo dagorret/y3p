@@ -1,0 +1,13 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<h1>{{ title }}</h1>
+<p>Confirme la operación sobre las identidades seleccionadas. Se registrarán el usuario y el resultado en la bitácora.</p>
+<ul>{% for object in objects %}<li>{{ object.identifier }} · {{ object }} · {{ object.institutional_upn }}</li>{% endfor %}</ul>
+<form method="post">{% csrf_token %}
+  <input type="hidden" name="confirm_support" value="yes">
+  {% if action_name %}<input type="hidden" name="action" value="{{ action_name }}">{% endif %}
+  {% for object in objects %}<input type="hidden" name="_selected_action" value="{{ object.pk }}">{% endfor %}
+  <button type="submit">Confirmar operación</button>
+  <a href="{% url 'admin:people_identity_changelist' %}">Cancelar</a>
+</form>
+{% endblock %}

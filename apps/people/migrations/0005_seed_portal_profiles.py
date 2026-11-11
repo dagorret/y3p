@@ -1,10 +1,10 @@
-"""Seed profile types used by postgraduate and extension registrations."""
+"""Siembra los tipos de vinculación de posgrado y extensión."""
 
 from django.db import migrations
 
 
 def seed_portal_profiles(apps, schema_editor):
-    """Create the canonical initial states that emit durable provisioning work."""
+    """Crea estados iniciales que emiten solicitudes persistentes de aprovisionamiento."""
 
     ProfileType = apps.get_model("people", "ProfileTypeDefinition")
     Status = apps.get_model("people", "SagaStatusDefinition")
@@ -37,7 +37,7 @@ def seed_portal_profiles(apps, schema_editor):
 
 
 def unseed_portal_profiles(apps, schema_editor):
-    """Remove only the portal-specific seed rows on migration rollback."""
+    """Elimina solo las filas iniciales propias del portal al revertir la migración."""
 
     ProfileType = apps.get_model("people", "ProfileTypeDefinition")
     Status = apps.get_model("people", "SagaStatusDefinition")
@@ -51,7 +51,7 @@ def unseed_portal_profiles(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    """Make required portal registration types available in every environment."""
+    """Disponibiliza los perfiles requeridos por el portal en todos los entornos."""
 
     dependencies = [("people", "0004_seed_provisioning_actions")]
 

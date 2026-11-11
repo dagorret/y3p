@@ -13,6 +13,7 @@ from .models import MockSialRecord
 
 def require_local_mocks():
     if not settings.ENABLE_LOCAL_MOCKS:
+        #FPLATFORMMOCKSSERVICES001-8001: Origina ConfigurationError; el llamador conserva la causa y decide su tratamiento.
         raise ConfigurationError('Esta operación requiere ENABLE_LOCAL_MOCKS=True.')
 
 
@@ -55,15 +56,18 @@ def ingest_mock_record(record):
     require_local_mocks()
     dni = record.dni.strip()
     if re.fullmatch(r'[0-9]{7,8}', dni) is None:
+        #FPLATFORMMOCKSSERVICES002-8002: Origina ValidationError; el llamador conserva la causa y decide su tratamiento.
         raise ValidationError('DNI del padrón inválido.')
     modality_code = record.modality.strip().upper()
     modalities = {'1': 'PRESENCIAL', 'P': 'PRESENCIAL', '2': 'DISTANCIA', 'D': 'DISTANCIA'}
     if modality_code not in modalities:
+        #FPLATFORMMOCKSSERVICES003-8003: Origina ValidationError; el llamador conserva la causa y decide su tratamiento.
         raise ValidationError('Modalidad del padrón no reconocida.')
     record.full_clean()
     profile = ProfileTypeDefinition.objects.get(code='ALUMNO')
     status = profile.statuses.get(code='INGRE')
     if status.provisioning_action != 'PROVISION' or not status.requires_collaboration_license:
+        #FPLATFORMMOCKSSERVICES004-8004: Origina ConfigurationError; el llamador conserva la causa y decide su tratamiento.
         raise ConfigurationError('ALUMNO/INGRE debe aprovisionar y requerir licencia.')
     upn = f'a{dni}@eco.unrc.edu.ar'
     identity, _ = Identity.objects.select_for_update().get_or_create(
@@ -74,6 +78,7 @@ def ingest_mock_record(record):
         },
     )
     if identity.category != Identity.Category.FISICA or identity.institutional_upn not in (None, '', upn):
+        #FPLATFORMMOCKSSERVICES005-8005: Origina ValidationError; el llamador conserva la causa y decide su tratamiento.
         raise ValidationError('La identidad existente no coincide con el padrón de ingreso.')
     if not identity.institutional_upn:
         identity.institutional_upn = upn
@@ -83,6 +88,7 @@ def ingest_mock_record(record):
     )
     reference = record.career_code.strip()
     if not reference:
+        #FPLATFORMMOCKSSERVICES006-8006: Origina ValidationError; el llamador conserva la causa y decide su tratamiento.
         raise ValidationError('El padrón debe indicar carrera.')
     if Affiliation.objects.filter(identity=identity, profile_type=profile, reference=reference).exists():
         return False

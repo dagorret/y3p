@@ -1,4 +1,4 @@
-"""Celery application wired to Django settings and task autodiscovery."""
+"""Aplicación Celery integrada con la configuración Django y el descubrimiento de tareas."""
 
 import os
 

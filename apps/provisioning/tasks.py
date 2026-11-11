@@ -1,4 +1,4 @@
-"""Celery entry points for dispatch, saga execution and Moodle continuation."""
+"""Entradas Celery para despacho, orquestación y continuación Moodle."""
 
 from celery import current_app, shared_task
 
@@ -10,27 +10,27 @@ from .sweeper import sweep_stuck_events
 
 @shared_task(name="provisioning.dispatch_outbox", queue="provisioning")
 def dispatch_outbox(limit=100):
-    """Claim FIFO-eligible outbox rows and publish one task per event."""
+    """Reclama eventos elegibles en orden y publica una tarea por evento."""
 
-    #FTASK01-7001: Dispatcher owns a short claim transaction and never calls providers.
+    #FTASK01-7001: El despachador reclama en una transacción breve y no invoca proveedores.
     return dispatch_pending_events(limit=limit)
 
 
 @shared_task(name="provisioning.run_saga", queue="provisioning")
 def run_saga(event_id):
-    """Run the synchronous part of one saga on the provisioning queue."""
+    """Ejecuta la parte sincrónica de una saga en la cola de aprovisionamiento."""
 
-    #FTASK02-7002: Orchestrator commits each checkpoint and returns before any Moodle wait.
+    #FTASK02-7002: La orquestación confirma avances antes de liberar la continuación Moodle.
     return execute_saga(event_id)
 
 
 @shared_task(name="provisioning.moodle_step", queue="moodle", rate_limit="150/m")
 def moodle_step(event_id):
-    """Run Moodle work on its dedicated, rate-limited worker and continue saga."""
+    """Ejecuta Moodle en su cola independiente, con límite de llamadas y continuación de la saga."""
 
     state = run_moodle_step(event_id)
     if state == OutboxEvent.Status.PENDING:
-        #FTASK03-7003: Confirmed Moodle checkpoint releases the next saga pass.
+        #FTASK03-7003: Un punto Moodle confirmado permite el siguiente despacho de la saga.
         current_app.send_task(
             "provisioning.dispatch_outbox", queue="provisioning"
         )
@@ -39,7 +39,7 @@ def moodle_step(event_id):
 
 @shared_task(name="provisioning.sweep_stuck_events", queue="provisioning")
 def sweep_stuck_events_task():
-    """Recover dead workers and lost Moodle continuations on the Beat schedule."""
+    """Recupera trabajadores perdidos y continuaciones Moodle vencidas desde la agenda periódica."""
 
-    #FTASK04-7004: PostgreSQL remains source of truth for retry scheduling.
+    #FTASK04-7004: PostgreSQL conserva la autoridad sobre los plazos de reintento.
     return sweep_stuck_events()

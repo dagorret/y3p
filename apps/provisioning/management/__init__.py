@@ -1,1 +1,1 @@
-"""Django management integration for the provisioning application."""
+"""Integración de comandos de gestión Django para aprovisionamiento."""

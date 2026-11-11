@@ -1,3 +1,5 @@
+import uuid
+
 from django.db import models
 
 
@@ -6,12 +8,31 @@ class MockAzureUser(models.Model):
 
     upn = models.CharField(max_length=150, unique=True, db_index=True)
     first_name = models.CharField(max_length=150)
-    last_name = models.CharField(max_length=150)
-    document_number = models.CharField(max_length=20, db_index=True)
+    last_name = models.CharField(max_length=150, blank=True)
+    document_number = models.CharField(max_length=20, db_index=True, blank=True)
     is_active = models.BooleanField(default=True)
     assigned_sku = models.CharField(max_length=100, blank=True, null=True)
     password_profile_force_change = models.BooleanField(default=True)
+    last_activity_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+
+class MockTeam(models.Model):
+    """Equipo educativo local con propietario institucional explícito."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    display_name = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    owner = models.ForeignKey(MockAzureUser, on_delete=models.PROTECT, related_name='owned_teams')
+
+
+class MockTeamMember(models.Model):
+    team = models.ForeignKey(MockTeam, on_delete=models.CASCADE, related_name='members')
+    user = models.ForeignKey(MockAzureUser, on_delete=models.CASCADE)
+    is_owner = models.BooleanField(default=False)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['team', 'user'], name='uq_mock_team_member')]
 
 
 class MockMoodleUser(models.Model):

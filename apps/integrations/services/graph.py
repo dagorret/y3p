@@ -1,7 +1,7 @@
 """Cliente Microsoft Graph para cuentas, licencias e informes de actividad.
 
-La implementación usa el flujo OAuth2 client credentials con scope Graph
-``.default`` y conserva el access token en memoria hasta poco antes de expirar.
+La implementación usa el flujo OAuth2 de credenciales de aplicación con alcance Graph
+``.default`` y conserva el token de acceso en memoria hasta poco antes de expirar.
 El módulo no importa modelos Django; las escrituras retornan DTOs.
 """
 
@@ -10,6 +10,8 @@ import time
 from urllib.parse import quote
 
 from apps.integrations.dataclasses import (
+    ExternalActionResult,
+    TeamMemberResult,
     GraphAccountResult,
     GraphUserResult,
     LicenseResult,
@@ -20,6 +22,7 @@ from apps.integrations.exceptions import (
     ConfigurationError,
     IntegrationError,
     RateLimitExceededError,
+    ResourceAlreadyExistsError,
     ResourceNotFoundError,
 )
 
@@ -29,7 +32,7 @@ from .base import BaseIntegrationClient
 class MicrosoftGraphClient(BaseIntegrationClient):
     """Cliente Graph con token cacheado y escrituras interceptables.
 
-    Args:
+    Parámetros:
         tenant_id: Tenant Microsoft Entra ID.
         client_id: Identificador de aplicación confidencial.
         client_secret: Secreto de aplicación, nunca escrito en logs.
@@ -134,6 +137,7 @@ class MicrosoftGraphClient(BaseIntegrationClient):
                 token_body = response.json()
                 token = token_body["access_token"]
                 expires_in = int(token_body.get("expires_in", 3600))
+            #FINTEGRATIONSSERVICESGRAPH004-8004: Trata el fallo en este límite y conserva la política de respuesta o recuperación.
             except (ValueError, KeyError, TypeError) as error:
                 #FGRAPH06-1006: Respuesta OAuth incompleta no se trata como token válido.
                 raise AuthenticationError("Microsoft Entra devolvió un token inválido.") from error
@@ -166,16 +170,16 @@ class MicrosoftGraphClient(BaseIntegrationClient):
         return response
 
     def _write(self, method, path, *, json=None):
-        """Send an authenticated Graph mutation through the shared status mapper.
+        """Envía una escritura autenticada de Graph por el traductor común de errores.
 
-        This helper keeps all Graph writes on the same timeout, auth, transport
-        error and structured HTTP error path. It must only be called after the
-        caller's dry-run interception, so simulated actions never acquire a token.
+        Centraliza tiempos de espera, autenticación y errores HTTP. El llamador
+        debe interceptar primero la simulación; así una escritura simulada nunca
+        solicita un token ni accede a la red.
         """
 
-        #FGRAPH28-1028: All mutations pass through the same authenticated HTTP boundary.
+        #FGRAPH28-1028: Todas las escrituras atraviesan el mismo límite HTTP autenticado.
         if method.upper() not in {"POST", "PATCH", "DELETE"}:
-            #FGRAPH28-1028: Reject a non-mutating or unsupported verb at this boundary.
+            #FGRAPH28-1028: Rechaza un verbo no permitido o sin efecto de escritura.
             raise ValueError("_write solo admite POST, PATCH y DELETE.")
         return self._graph_request(method, path, json=json)
 
@@ -187,6 +191,7 @@ class MicrosoftGraphClient(BaseIntegrationClient):
             raise ValueError("upn no puede estar vacío.")
         try:
             response = self._graph_request("GET", f"users/{quote(upn, safe='')}")
+        #FINTEGRATIONSSERVICESGRAPH010-8010: Trata el fallo en este límite y conserva la política de respuesta o recuperación.
         except ResourceNotFoundError:
             #FGRAPH10-1010: 404 estructurado es ausencia, otros fallos se propagan.
             return None
@@ -214,9 +219,9 @@ class MicrosoftGraphClient(BaseIntegrationClient):
         2xx; cualquier HTTP 409 se convierte en ``ResourceAlreadyExistsError``.
         """
 
-        if not all((first_name, last_name, upn, initial_password)):
+        if not all((first_name, upn, initial_password)):
             #FGRAPH11-1011: Campos mínimos evitan enviar un objeto inválido a Graph.
-            raise ValueError("first_name, last_name, upn e initial_password son obligatorios.")
+            raise ValueError("first_name, upn e initial_password son obligatorios.")
         display_name = f"{first_name} {last_name}".strip()
         if self._intercept_dry_run(
             "create_user",
@@ -248,6 +253,8 @@ class MicrosoftGraphClient(BaseIntegrationClient):
                 "forceChangePasswordNextSignIn": force_change_password,
             },
         }
+        if not last_name:
+            payload.pop('surname')
         response = self._write("POST", "users", json=payload)
         body = self._json_object(response, "usuario Graph")
         return GraphUserResult(
@@ -281,6 +288,7 @@ class MicrosoftGraphClient(BaseIntegrationClient):
                     f"users/{quote(user_id_or_upn, safe='')}/assignLicense",
                     json=payload,
                 )
+            #FINTEGRATIONSSERVICESGRAPH012-8012: Trata el fallo en este límite y conserva la política de respuesta o recuperación.
             except RateLimitExceededError as error:
                 #FGRAPH27-1027: 429 usa backoff y un máximo finito de intentos.
                 if attempt >= self.max_rate_limit_retries:
@@ -325,18 +333,18 @@ class MicrosoftGraphClient(BaseIntegrationClient):
         return True
 
     def disable_user(self, user_identifier: str) -> GraphAccountResult:
-        """Disable an Entra account with PATCH and an explicit simulation DTO.
+        """Deshabilita una cuenta Entra mediante PATCH y un resultado tipado.
 
-        The operation is idempotent: setting ``accountEnabled`` to false more
-        than once preserves the desired state. Dry-run exits before OAuth or
-        HTTP, so tests and local workflows cannot accidentally mutate Graph.
+        Fijar accountEnabled en falso es idempotente: repetir la orden conserva
+        el estado deseado. La simulación retorna antes de OAuth o HTTP para
+        impedir cambios accidentales durante las pruebas.
         """
 
         if not user_identifier:
-            #FGRAPH29-1029: A user identifier is required to construct the resource path.
+            #FGRAPH29-1029: La ruta exige un identificador de usuario.
             raise ValueError("user_identifier no puede estar vacío.")
         if self._intercept_dry_run("disable_user", user_identifier=user_identifier):
-            #FGRAPH30-1030: Simulation prevents token acquisition and PATCH.
+            #FGRAPH30-1030: La simulación impide obtener un token o ejecutar PATCH.
             return GraphAccountResult(user_identifier, enabled=False, simulated=True)
         self._write(
             "PATCH",
@@ -346,15 +354,15 @@ class MicrosoftGraphClient(BaseIntegrationClient):
         return GraphAccountResult(user_identifier, enabled=False)
 
     def set_temporary_password(self, user_identifier: str, password: str) -> PasswordSetResult:
-        """Set a one-time password without ever returning or persisting its value."""
+        """Asigna una clave de un solo uso sin devolverla ni almacenarla en el resultado."""
 
         if not user_identifier or not password:
-            #FGRAPH31-1031: Missing user or password is rejected before the write path.
+            #FGRAPH31-1031: La escritura exige usuario y contraseña.
             raise ValueError("user_identifier y password son obligatorios.")
         if self._intercept_dry_run(
             "set_temporary_password", user_identifier=user_identifier, password=password
         ):
-            #FGRAPH32-1032: Simulated credentials do not reach OAuth or Graph.
+            #FGRAPH32-1032: Las credenciales simuladas no llegan a OAuth ni a Graph.
             return PasswordSetResult(user_identifier, simulated=True)
         self._write(
             "PATCH",
@@ -367,6 +375,164 @@ class MicrosoftGraphClient(BaseIntegrationClient):
             },
         )
         return PasswordSetResult(user_identifier)
+
+    def revoke_sign_in_sessions(self, user_id_or_upn: str) -> ExternalActionResult:
+        if not user_id_or_upn:
+            #FINTEGRATIONSSERVICESGRAPH018-8018: Origina ValueError; el llamador conserva la causa y decide su tratamiento.
+            raise ValueError("Debe indicar usuario.")
+        if self._intercept_dry_run("revoke_sign_in_sessions", user_identifier=user_id_or_upn):
+            return ExternalActionResult("revoke_sessions", simulated=True)
+        response = self._write("POST", f"users/{quote(user_id_or_upn, safe='')}/revokeSignInSessions", json={})
+        if self._json_object(response, "revocación Graph").get("value") is not True:
+            #FINTEGRATIONSSERVICESGRAPH019-8019: Origina IntegrationError; el llamador conserva la causa y decide su tratamiento.
+            raise IntegrationError("Graph no confirmó la revocación de sesiones.")
+        return ExternalActionResult("revoke_sessions")
+
+    def reset_password_temporary(self, user_id_or_upn: str, temp_password: str) -> ExternalActionResult:
+        result = self.set_temporary_password(user_id_or_upn, temp_password)
+        return ExternalActionResult("reset_password", simulated=result.simulated)
+
+    def toggle_user_status(self, user_id_or_upn: str, enable: bool) -> ExternalActionResult:
+        if not user_id_or_upn or not isinstance(enable, bool):
+            #FINTEGRATIONSSERVICESGRAPH020-8020: Origina ValueError; el llamador conserva la causa y decide su tratamiento.
+            raise ValueError("Usuario y estado booleano son obligatorios.")
+        if self._intercept_dry_run("toggle_user_status", user_identifier=user_id_or_upn, enable=enable):
+            return ExternalActionResult("toggle_status", simulated=True)
+        self._write("PATCH", f"users/{quote(user_id_or_upn, safe='')}", json={"accountEnabled": enable})
+        return ExternalActionResult("toggle_status")
+
+    def toggle_license(self, user_id_or_upn: str, sku_id: str, assign: bool) -> ExternalActionResult:
+        if not isinstance(assign, bool):
+            #FINTEGRATIONSSERVICESGRAPH021-8021: Origina ValueError; el llamador conserva la causa y decide su tratamiento.
+            raise ValueError("assign debe ser booleano.")
+        result = (self.assign_license if assign else self.remove_license)(user_id_or_upn, sku_id)
+        return ExternalActionResult("assign_license" if assign else "remove_license", simulated=result.simulated)
+
+    def get_user_license_ids(self, user_id_or_upn: str) -> tuple[str, ...]:
+        """Lee el estado real para conmutar; la simulación no abre conexiones."""
+        if not user_id_or_upn:
+            #FINTEGRATIONSSERVICESGRAPH022-8022: Origina ValueError; el llamador conserva la causa y decide su tratamiento.
+            raise ValueError("Debe indicar usuario.")
+        if self.dry_run:
+            return ()
+        response = self._graph_request("GET", f"users/{quote(user_id_or_upn, safe='')}", params={"$select": "assignedLicenses"})
+        licenses = self._json_object(response, "licencias Graph").get("assignedLicenses")
+        if not isinstance(licenses, list) or any(not isinstance(item, dict) or not item.get("skuId") for item in licenses):
+            #FINTEGRATIONSSERVICESGRAPH023-8023: Origina IntegrationError; el llamador conserva la causa y decide su tratamiento.
+            raise IntegrationError("Graph no devolvió el estado de licencias.")
+        return tuple(str(item["skuId"]) for item in licenses)
+
+    def create_team_from_template(self, display_name: str, description: str, owner_upn: str) -> ExternalActionResult:
+        if not display_name.strip() or not owner_upn:
+            #FINTEGRATIONSSERVICESGRAPH024-8024: Origina ValueError; el llamador conserva la causa y decide su tratamiento.
+            raise ValueError("Nombre y propietario del equipo son obligatorios.")
+        if self._intercept_dry_run("create_team_from_template", display_name=display_name, owner_upn=owner_upn):
+            return ExternalActionResult("create_team", simulated=True, accepted=True)
+        owner = self.get_user(owner_upn)
+        if owner is None or not owner.id:
+            #FINTEGRATIONSSERVICESGRAPH025-8025: Origina ResourceNotFoundError; el llamador conserva la causa y decide su tratamiento.
+            raise ResourceNotFoundError("No existe el propietario del equipo.")
+        response = self._write("POST", "teams", json={
+            "template@odata.bind": f"{self.graph_base_url}/teamsTemplates('educationClass')",
+            "displayName": display_name.strip(), "description": description.strip(),
+            "members": [{"@odata.type": "#microsoft.graph.aadUserConversationMember", "roles": ["owner"],
+                         "user@odata.bind": f"{self.graph_base_url}/users('{quote(owner.id, safe='')}')"}],
+        })
+        # Graph confirma aceptación (202); la creación continúa asincrónicamente.
+        return ExternalActionResult("create_team", accepted=response.status_code == 202,
+                                    resource_id=response.headers.get("Content-Location") or response.headers.get("Location"))
+
+    def get_team_members(self, team_id: str) -> tuple[TeamMemberResult, ...]:
+        if not team_id:
+            #FINTEGRATIONSSERVICESGRAPH026-8026: Origina ValueError; el llamador conserva la causa y decide su tratamiento.
+            raise ValueError('Debe indicar el equipo.')
+        path = f"teams/{quote(team_id, safe='')}/members"
+        results, visited = [], set()
+        while path:
+            if path in visited:
+                #FINTEGRATIONSSERVICESGRAPH027-8027: Origina IntegrationError; el llamador conserva la causa y decide su tratamiento.
+                raise IntegrationError('Paginación circular de miembros Graph.')
+            visited.add(path)
+            body = self._json_object(self._graph_request('GET', path), 'miembros Graph')
+            if not isinstance(body.get('value'), list):
+                #FINTEGRATIONSSERVICESGRAPH028-8028: Origina IntegrationError; el llamador conserva la causa y decide su tratamiento.
+                raise IntegrationError('Graph devolvió miembros inválidos.')
+            for member in body['value']:
+                if not isinstance(member, dict) or not member.get('id') or not member.get('userId'):
+                    #FINTEGRATIONSSERVICESGRAPH029-8029: Origina IntegrationError; el llamador conserva la causa y decide su tratamiento.
+                    raise IntegrationError('Graph devolvió un miembro sin identificador.')
+                user = self.get_user(str(member['userId']))
+                if user is None:
+                    #FINTEGRATIONSSERVICESGRAPH030-8030: Origina ResourceNotFoundError; el llamador conserva la causa y decide su tratamiento.
+                    raise ResourceNotFoundError('No fue posible identificar al miembro del equipo.')
+                results.append(TeamMemberResult(str(member['id']), str(member['userId']), user.upn,
+                                               str(member.get('displayName', '')), 'owner' in member.get('roles', [])))
+            next_link = body.get('@odata.nextLink')
+            if next_link:
+                prefix = f"{self.graph_base_url}/teams/{quote(team_id, safe='')}/members?"
+                if not isinstance(next_link, str) or not next_link.startswith(prefix):
+                    #FINTEGRATIONSSERVICESGRAPH031-8031: Origina IntegrationError; el llamador conserva la causa y decide su tratamiento.
+                    raise IntegrationError('Destino de paginación Graph inválido.')
+                path = next_link[len(self.graph_base_url) + 1:]
+            else:
+                path = None
+        return tuple(results)
+
+    def add_team_member(self, team_id: str, user_id_or_upn: str) -> ExternalActionResult:
+        if not team_id or not user_id_or_upn:
+            #FINTEGRATIONSSERVICESGRAPH032-8032: Origina ValueError; el llamador conserva la causa y decide su tratamiento.
+            raise ValueError('Equipo y usuario son obligatorios.')
+        if self._intercept_dry_run('add_team_member', team_id=team_id, user_identifier=user_id_or_upn):
+            return ExternalActionResult('add_team_member', simulated=True)
+        added = 1
+        try:
+            self._write('POST', f"teams/{quote(team_id, safe='')}/members", json={
+                '@odata.type': '#microsoft.graph.aadUserConversationMember', 'roles': [],
+                'user@odata.bind': f"{self.graph_base_url}/users('{quote(user_id_or_upn, safe='')}')",
+            })
+        #FINTEGRATIONSSERVICESGRAPH033-8033: Trata el fallo en este límite y conserva la política de respuesta o recuperación.
+        except ResourceAlreadyExistsError:
+            members = self.get_team_members(team_id)
+            if not any(m.upn.casefold() == user_id_or_upn.casefold() or m.user_id == user_id_or_upn for m in members):
+                #FINTEGRATIONSSERVICESGRAPH034-8034: Propaga el fallo original sin convertirlo en éxito.
+                raise
+            added = 0
+        return ExternalActionResult('add_team_member', affected_count=added)
+
+    def purge_team_members(self, team_id: str, keep_owners: bool = True) -> ExternalActionResult:
+        if not team_id or not isinstance(keep_owners, bool):
+            #FINTEGRATIONSSERVICESGRAPH035-8035: Origina ValueError; el llamador conserva la causa y decide su tratamiento.
+            raise ValueError("Equipo y política de propietarios son obligatorios.")
+        if self._intercept_dry_run("purge_team_members", team_id=team_id, keep_owners=keep_owners):
+            return ExternalActionResult("purge_team", simulated=True)
+        path = f"teams/{quote(team_id, safe='')}/members"
+        members, visited = [], set()
+        while path:
+            if path in visited:
+                #FINTEGRATIONSSERVICESGRAPH036-8036: Origina IntegrationError; el llamador conserva la causa y decide su tratamiento.
+                raise IntegrationError("Paginación circular de miembros Graph.")
+            visited.add(path)
+            body = self._json_object(self._graph_request("GET", path), "miembros Graph")
+            page = body.get("value")
+            if not isinstance(page, list) or any(not isinstance(m, dict) or not m.get("id") or not isinstance(m.get("roles"), list) for m in page):
+                #FINTEGRATIONSSERVICESGRAPH037-8037: Origina IntegrationError; el llamador conserva la causa y decide su tratamiento.
+                raise IntegrationError("Graph devolvió miembros inválidos.")
+            members.extend(page)
+            next_link = body.get("@odata.nextLink")
+            if next_link:
+                if not isinstance(next_link, str) or not next_link.startswith(f"{self.graph_base_url}/teams/{quote(team_id, safe='')}/members?"):
+                    #FINTEGRATIONSSERVICESGRAPH038-8038: Origina IntegrationError; el llamador conserva la causa y decide su tratamiento.
+                    raise IntegrationError("Destino de paginación Graph inválido.")
+                path = next_link[len(self.graph_base_url) + 1:]
+            else:
+                path = None
+        removed = 0
+        for member in members:
+            if keep_owners and "owner" in member["roles"]:
+                continue
+            self._write("DELETE", f"teams/{quote(team_id, safe='')}/members/{quote(member['id'], safe='')}")
+            removed += 1
+        return ExternalActionResult("purge_team", affected_count=removed)
 
     def get_teams_activity_d180(self) -> bytes:
         """Descarga el CSV del informe de actividad de Teams de los últimos 180 días."""
@@ -405,6 +571,7 @@ class MicrosoftGraphClient(BaseIntegrationClient):
 
         try:
             body = response.json()
+        #FINTEGRATIONSSERVICESGRAPH042-8042: Trata el fallo en este límite y conserva la política de respuesta o recuperación.
         except ValueError as error:
             #FGRAPH23-1023: Cuerpo inválido no puede convertirse en DTO exitoso.
             raise IntegrationError(f"Respuesta JSON inválida de {description}.") from error

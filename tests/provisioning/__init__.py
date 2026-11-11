@@ -1,1 +1,1 @@
-"""Database-backed tests for the transactional outbox and saga workers."""
+"""Pruebas de base de datos del Outbox transaccional y sus trabajadores."""

@@ -1,16 +1,19 @@
-{% extends "portal/base.html" %}
+{% extends "portal/administracion/base_administracion.html" %}
 {% block title %}Administración · Portal Y3P{% endblock %}
-{% block content %}
+{% block admin_content %}
   <section class="mb-8">
-    <p class="text-sm font-semibold uppercase tracking-wider text-blue-700">Consulta de Grado</p>
+    <p class="text-sm font-semibold uppercase tracking-wider text-blue-700">Ventanilla de soporte</p>
     <h1 class="mt-2 text-3xl font-bold text-slate-900">Administración</h1>
-    <p class="mt-2 max-w-2xl text-slate-600">Buscá una persona por DNI, nombre o apellido para consultar sus vinculaciones de grado.</p>
+    <p class="mt-2 max-w-2xl text-slate-600">Consola de alumnos: 50 identidades por página, diagnóstico local y operaciones trazables.</p>
   </section>
-  <label for="person-search" class="mb-2 block text-sm font-semibold text-slate-700">DNI o apellido</label>
-  <input id="person-search" name="q" type="search" value="{{ query }}" autocomplete="off" placeholder="Ej.: 30123456 o Pérez"
-         class="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 shadow-sm outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-100"
-         hx-get="/dash/administracion/" hx-trigger="keyup changed delay:300ms" hx-target="#administracion-results" hx-swap="innerHTML">
-  <div id="administracion-results" class="mt-6" aria-live="polite">
-    {% include "portal/fragments/administracion_results.html" %}
-  </div>
+  <form id="student-filters" method="get" class="mb-6 grid gap-4 rounded-xl bg-white p-4 md:grid-cols-4"
+        hx-get="{% url 'portal:administracion' %}" hx-trigger="change from:select" hx-target="#tabla-alumnos-container" hx-swap="outerHTML" hx-push-url="true">
+    <label>Carrera<select name="career"><option value="">Todas</option>{% for career in careers %}<option value="{{ career }}" {% if filters.career == career %}selected{% endif %}>{{ career }}</option>{% endfor %}</select></label>
+    <label>Estado de saga<select name="status"><option value="">Todos</option>{% for code, name in saga_states %}<option value="{{ code }}" {% if filters.status == code %}selected{% endif %}>{{ code }} · {{ name }}</option>{% endfor %}</select></label>
+    <label>Semáforo<select name="health"><option value="">Todos</option>{% for code, label in health_options %}<option value="{{ code }}" {% if filters.health == code %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+    <label for="person-search">DNI, apellido, nombre o UPN<input id="person-search" name="q" type="search" value="{{ query }}" autocomplete="off" placeholder="Ej.: 30123456 o Pérez"
+         hx-get="{% url 'portal:administracion' %}" hx-include="#student-filters" hx-trigger="keyup changed delay:300ms, search" hx-target="#tabla-alumnos-container" hx-swap="outerHTML" hx-push-url="true"></label>
+  </form>
+  <p class="mb-4 text-xs text-slate-600">Prioridad: rojo → naranja → amarillo → verde. Sin actividad u observaciones confirmadas se informa advertencia; una vigencia sin fecha se considera indefinida. El diagnóstico usa datos locales y no consulta APIs al cargar.</p>
+  {% include "portal/fragments/administracion_results.html" %}
 {% endblock %}

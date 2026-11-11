@@ -2,7 +2,7 @@
 
 Sistema Y3P - FCE / UNRC. La capa de metamodelo define tipos, estados y reglas;
 la capa operativa conserva identidades y vinculaciones; la capa de auditoría
-registra los cambios como filas append-only. Las validaciones entre filas viven
+registra los cambios como filas de solo anexado. Las validaciones entre filas viven
 en ``clean()`` y las restricciones locales se delegan a PostgreSQL.
 """
 
@@ -15,6 +15,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 
+#FPEOPLEMODELS001-8001: Declara la excepción de dominio ConfigurationError para distinguir esta regla.
 class ConfigurationError(Exception):
     """Indica que falta una pieza obligatoria del metamodelo persistido.
 
@@ -369,6 +370,10 @@ class Identity(models.Model):
         db_index=True,
         help_text="Cuenta oficial (@eco.unrc.edu.ar). Null mientras no esté aprovisionada.",
     )
+    metadata = models.JSONField(
+        default=dict, blank=True,
+        help_text="Atributos libres: observaciones, legajo provisorio, número de trámite, etc.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -377,6 +382,11 @@ class Identity(models.Model):
 
         verbose_name = "Identidad"
         verbose_name_plural = "Identidades"
+        permissions = [
+            ('can_view_student_360', 'Puede consultar la Ficha 360°, vinculaciones, cuentas e historial'),
+            ('can_operate_student_daily', 'Puede ejecutar soporte diario de alumnos'),
+            ('can_administrate_student_critical', 'Puede ejecutar administración crítica de alumnos'),
+        ]
         constraints = [
             #FID01-0040: Las identidades organizacionales no llevan apellido.
             models.CheckConstraint(
@@ -405,6 +415,9 @@ class Identity(models.Model):
 
         super().clean()
         #FID04-0043: Una persona física debe tener apellido no vacío.
+        if not isinstance(self.metadata, dict):
+            #FPEOPLEMODELS007-8007: Origina ValidationError; el llamador conserva la causa y decide su tratamiento.
+            raise ValidationError({'metadata': 'Los metadatos deben ser un objeto JSON.'})
         if self.category == self.Category.FISICA and not self.last_name:
             #FID04-0043: Rechaza identidad física sin apellido.
             raise ValidationError({"last_name": "El apellido es obligatorio para personas físicas."})
@@ -437,6 +450,8 @@ class DigitalAccount(models.Model):
     account_identifier = models.CharField(max_length=255)
     is_active = models.BooleanField(default=True)
     content_hash = models.CharField(max_length=64, blank=True, null=True)
+    observations = models.JSONField(default=dict, blank=True,
+        help_text='Observaciones locales: licencia, cambio de clave, última actividad y cursos. Sin secretos.')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -460,7 +475,16 @@ class PersonalProfile(models.Model):
         Identity, on_delete=models.CASCADE, related_name="personal_profile"
     )
     personal_email = models.EmailField(max_length=150, blank=True)
-    phone_number = models.CharField(max_length=50, blank=True)
+    phone = models.CharField(max_length=50, blank=True)
+
+    @property
+    def phone_number(self):
+        """Alias de compatibilidad para el campo de contacto anterior."""
+        return self.phone
+
+    @phone_number.setter
+    def phone_number(self, value):
+        self.phone = value
     address = models.CharField(max_length=255, blank=True)
     city = models.CharField(max_length=100, blank=True)
     birth_date = models.DateField(
@@ -574,23 +598,27 @@ class Affiliation(models.Model):
 
 
 # ======================================================================
-# CAPA 3: AUDITORÍA INMUTABLE (Append-only)
+# CAPA 3: AUDITORÍA INMUTABLE (De solo anexado)
 # ======================================================================
 
 
 class OutboxEvent(models.Model):
-    """Durable provisioning command emitted in the producer transaction.
+    """Orden de aprovisionamiento persistida junto con el cambio de dominio.
 
-    The increasing primary key supplies strict FIFO ordering for a single
-    identity while ``public_id`` is safe to expose externally. Foreign keys
-    preserve the source context and prevent deleting referenced domain rows.
-    Checkpoint JSON may contain provider outcomes but never credentials or
-    temporary passwords. State, lock, retry and heartbeat fields are written
-    in short transactions by the dispatcher and saga worker.
+    El patrón Outbox guarda la intención en la misma transacción que la
+    vinculación. Su clave creciente permite ordenar las operaciones por identidad;
+    public_id permite referenciarlas sin exponer datos personales. Las referencias
+    protegidas conservan el contexto de origen. Los resultados por paso no guardan
+    contraseñas ni tokens.
+
+    La compensación es consistencia eventual: PostgreSQL confirma el trabajo
+    pendiente antes de que los proveedores lo ejecuten. Los puntos de control
+    permiten reanudar; no equivalen a una transacción distribuida ni garantizan
+    una única llamada remota ante una caída entre la respuesta y el registro local.
     """
 
     class Status(models.TextChoices):
-        """Persisted lifecycle values for dispatch and recovery."""
+        """Estados persistidos del ciclo de despacho, ejecución y recuperación."""
 
         PENDING = "PENDING", "Pendiente"
         PROCESSING = "PROCESSING", "En proceso"
@@ -603,7 +631,11 @@ class OutboxEvent(models.Model):
     id = models.BigAutoField(primary_key=True)
     public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     action = models.CharField(
-        max_length=16, choices=SagaStatusDefinition.ProvisioningAction.choices
+        max_length=16, choices=[*SagaStatusDefinition.ProvisioningAction.choices, ('SUPPORT', 'Soporte administrativo')]
+    )
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True,
+        related_name='requested_outbox_events',
     )
     identity = models.ForeignKey(
         Identity, on_delete=models.PROTECT, related_name="outbox_events"
@@ -626,7 +658,7 @@ class OutboxEvent(models.Model):
     processed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        """Define the table and indexes for claiming and identity FIFO."""
+        """Define la tabla y los índices para reclamar trabajo y mantener el orden por identidad."""
 
         db_table = "people_outbox_events"
         indexes = [
@@ -635,13 +667,13 @@ class OutboxEvent(models.Model):
         ]
 
     def __str__(self):
-        """Expose a PII-free summary suitable for administration and logs."""
+        """Devuelve un resumen sin datos personales para administración y registros."""
 
         return f"OutboxEvent({self.public_id}, {self.action}, {self.status})"
 
 
 class AffiliationStatusHistory(models.Model):
-    """Bitácora append-only de altas y cambios de estado de una afiliación.
+    """Bitácora de solo anexado de altas y cambios de estado de una afiliación.
 
     El ORM rechaza editar o borrar instancias existentes. Cada fila registra
     actor, motivo, instante y regla aplicada; la fila debe insertarse en la
@@ -689,13 +721,13 @@ class AffiliationStatusHistory(models.Model):
 
         El evento se guarda en la transacción activa del llamador; el servicio
         de dominio garantiza que la mutación y el asiento se confirmen o reviertan
-        juntos. ``force_insert`` conserva la semántica append-only al crear.
+        juntos. ``force_insert`` conserva la semántica de solo anexado al crear.
         """
 
         if self.pk:
             #FHIST01-0060: Una fila de auditoría existente nunca se actualiza.
             raise ValidationError(
-                "El historial de estados es append-only: no se puede modificar."
+                "El historial de estados es inmutable: no se puede modificar."
             )
         #FHIST03-0062: Inserta un evento nuevo en la transacción del llamador.
         kwargs["force_insert"] = True
@@ -704,8 +736,8 @@ class AffiliationStatusHistory(models.Model):
     def delete(self, *args, **kwargs):
         """Rechaza la eliminación ORM de cualquier evento de auditoría."""
 
-        #FHIST02-0061: El historial append-only no admite eliminación ORM.
-        raise ValidationError("El historial de estados es append-only: no se puede eliminar.")
+        #FHIST02-0061: El historial de solo anexado no admite eliminación ORM.
+        raise ValidationError("El historial de estados es inmutable: no se puede eliminar.")
 
     def __str__(self):
         """Expone origen, destino y actor como resumen auditable."""

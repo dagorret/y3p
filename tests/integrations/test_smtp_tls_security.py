@@ -10,7 +10,7 @@ class SmtpTlsSecurityTests(unittest.TestCase):
     """Evita regresiones que permitan STARTTLS sin validación de certificados."""
 
     def test_starttls_receives_default_ssl_context(self):
-        """SMTP 587 crea contexto default y lo pasa explícitamente a starttls."""
+        """SMTP 587 crea el contexto predeterminado y lo pasa explícitamente a starttls."""
 
         tls_context = object()
         server = MagicMock()

@@ -68,13 +68,13 @@ class MailerClient(BaseIntegrationClient):
     ) -> MailDeliveryResult:
         """Envía un correo y encapsula errores en ``MailDeliveryResult``.
 
-        Args:
+        Parámetros:
             recipient: Dirección del destinatario.
             subject: Asunto del mensaje.
             text_body: Cuerpo de texto obligatorio.
             html_body: Alternativa HTML opcional.
 
-        Returns:
+        Retorna:
             Un resultado exitoso, simulado o fallido. El método no propaga errores
             de renderizado y conexión para no abortar el worker consumidor.
         """
@@ -152,6 +152,7 @@ class MailerClient(BaseIntegrationClient):
                 success=True,
                 message_id=message["Message-ID"],
             )
+        #FINTEGRATIONSSERVICESMAILER004-8004: Trata el fallo en este límite y conserva la política de respuesta o recuperación.
         except Exception as error:
             #FMAIL12-4012: Captura renderizado, configuración y SMTP para no abortar worker.
             self.logger.exception(
@@ -172,11 +173,11 @@ class MailerClient(BaseIntegrationClient):
             )
 
     def send_credentials_email(self, recipient: str, full_name: str, upn: str, password: str):
-        """Render and send initial account credentials without logging the secret.
+        """Prepara y envía credenciales iniciales sin registrar el secreto.
 
-        The caller owns the ephemeral password lifetime. This method builds the
-        only message body containing it, delegates transport handling to
-        ``send_email`` and returns the delivery DTO; it never stores the value.
+        El llamador controla la vida de la contraseña temporal. Solo el cuerpo
+        del correo contiene su valor; el resultado conserva metadatos de entrega.
+        Un error permite regenerar una clave diferente en el próximo intento.
         """
 
         subject = "Credenciales de acceso institucional"
@@ -195,7 +196,7 @@ class MailerClient(BaseIntegrationClient):
             "<p>Al iniciar sesión se te pedirá cambiar la contraseña. "
             "Si recibiste más de un mensaje, usá el más reciente.</p>"
         )
-        #FMAIL15-4015: Secret is passed only to the SMTP body; structured logs retain length only.
+        #FMAIL15-4015: El secreto solo llega al cuerpo SMTP; los registros conservan únicamente su longitud.
         return self.send_email(recipient, subject, text_body, html_body)
 
     def _login_if_configured(self, server):

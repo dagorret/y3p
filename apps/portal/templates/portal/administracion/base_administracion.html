@@ -1,0 +1,24 @@
+{% extends "portal/base.html" %}
+{% block content %}
+<style>
+  .admin-workspace input:not([type=hidden]):not([type=checkbox]), .admin-workspace select, .admin-workspace textarea { border: 1px solid #cbd5e1; border-radius: .5rem; padding: .6rem; max-width: 100%; width: 100%; background: white; }
+  .admin-workspace form p { margin: 1rem 0; }
+  .admin-workspace form label { display: block; font-weight: 600; }
+  .admin-workspace .errorlist { color: #991b1b; }
+</style>
+<div class="admin-workspace grid gap-8 lg:grid-cols-[240px_minmax(0,1fr)]">
+  <aside class="self-start rounded-2xl bg-slate-900 p-5 text-white lg:sticky lg:top-6">
+    <h2 class="mb-5 text-xs font-semibold uppercase tracking-widest text-slate-300">Administración Y3P</h2>
+    <nav aria-label="Gestión administrativa" class="space-y-2">
+      <a class="block rounded-lg px-3 py-3 hover:bg-slate-700" href="{% url 'portal:administracion' %}">Buscador / 360°</a>
+      {% if can_administer_critical %}<a class="block rounded-lg px-3 py-3 hover:bg-slate-700" href="{% url 'portal:person_create' %}">Alta de Persona</a>{% endif %}
+      {% if can_administer_critical %}<a class="block rounded-lg px-3 py-3 hover:bg-slate-700" href="{% url 'portal:teams' %}">Gestión de Teams</a>{% endif %}
+      {% if can_administer_critical %}<a class="block rounded-lg px-3 py-3 hover:bg-slate-700" href="{% url 'portal:functional_create' %}">Cuentas Funcionales</a>{% endif %}
+    </nav>
+  </aside>
+  <div class="min-w-0">
+    {% for notice in messages %}<div role="status" class="mb-5 rounded-xl bg-emerald-100 p-4 text-emerald-900">{{ notice }}</div>{% endfor %}
+    {% block admin_content %}{% endblock %}
+  </div>
+</div>
+{% endblock %}

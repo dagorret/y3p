@@ -1,6 +1,7 @@
-"""PostgreSQL-backed coverage for dashboard rendering and registration flows."""
+"""Pruebas PostgreSQL de presentación e inscripción desde los portales."""
 
 from django.test import TestCase
+from django.contrib.auth import get_user_model
 from django.urls import reverse
 
 from apps.people.models import (
@@ -29,17 +30,19 @@ class PortalDashboardTests(TestCase):
         data.update(overrides)
         return data
 
-    def test_all_dashboard_urls_render_for_anonymous_visitors(self):
+    def test_registration_dashboards_are_public_and_administration_requires_login(self):
         for route in (
-            "portal:administracion",
             "portal:postgrado",
             "portal:extension",
         ):
             with self.subTest(route=route):
                 response = self.client.get(reverse(route))
                 self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.client.get(reverse('portal:administracion')).status_code, 302)
 
     def test_administration_htmx_search_returns_results_fragment(self):
+        user = get_user_model().objects.create_superuser('search-operator', password='test')
+        self.client.force_login(user)
         identity = Identity.objects.create(
             category=Identity.Category.FISICA,
             identifier="27123456",

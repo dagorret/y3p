@@ -1,10 +1,10 @@
-"""Application configuration for the public HTMX portal."""
+"""Configuración de la aplicación de portales reactivos HTMX."""
 
 from django.apps import AppConfig
 
 
 class PortalConfig(AppConfig):
-    """Register portal dashboards and use big integer primary keys by default."""
+    """Registra los portales y emplea enteros grandes como claves primarias."""
 
     default_auto_field = "django.db.models.BigAutoField"
     name = "apps.portal"

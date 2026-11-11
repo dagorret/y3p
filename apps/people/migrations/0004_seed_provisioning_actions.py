@@ -1,14 +1,14 @@
-"""Configure event actions and shared license requirements for FCE states."""
+"""Configura acciones externas y requisitos de licencia de los estados institucionales."""
 
 from django.db import migrations
 
 
 def configure_provisioning_actions(apps, schema_editor):
-    """Set state-entry intents from canonical 01_03 section 4.
+    """Asigna las acciones de entrada definidas en el diseño 01_03, sección 4.
 
-    Existing status rows are updated only by stable profile and status codes.
-    The migration is atomic with the schema history; no external integrations
-    are called and rollback clears only these newly introduced settings.
+    Actualiza exclusivamente códigos estables de perfil y estado. La migración
+    es atómica con su historial; no llama a proveedores y su reverso limpia
+    únicamente los valores incorporados por esta operación.
     """
 
     Status = apps.get_model("people", "SagaStatusDefinition")
@@ -20,7 +20,7 @@ def configure_provisioning_actions(apps, schema_editor):
         ("PROFESOR", "SI"): ("PROVISION", True),
         ("PROFESOR", "NO"): ("SUSPEND", False),
     }
-    #FSEED09-4009: Only the canonical states provision or suspend accounts.
+    #FSEED09-4009: Solo los estados institucionales definidos aprovisionan o suspenden cuentas.
     for (profile_code, status_code), (action, requires_license) in action_by_state.items():
         Status.objects.using(database).filter(
             profile_type__code=profile_code,
@@ -32,11 +32,11 @@ def configure_provisioning_actions(apps, schema_editor):
 
 
 def clear_provisioning_actions(apps, schema_editor):
-    """Restore the prior no-action values when reversing this data migration."""
+    """Restaura los valores sin acción al revertir esta migración de datos."""
 
     Status = apps.get_model("people", "SagaStatusDefinition")
     database = schema_editor.connection.alias
-    #FSEED10-4010: Reversal removes only values introduced by this migration.
+    #FSEED10-4010: El reverso limpia exclusivamente los valores de esta migración.
     Status.objects.using(database).filter(
         profile_type__code__in=["ALUMNO", "PROFESOR"],
         code__in=["INGRE", "ALUMNO", "GRADUADO", "SI", "NO"],
@@ -44,7 +44,7 @@ def clear_provisioning_actions(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    """Attach canonical integration intent to the seeded institutional graph."""
+    """Vincula las acciones externas iniciales con el grafo institucional sembrado."""
 
     dependencies = [("people", "0003_sagastatusdefinition_provisioning_action_and_more")]
 

@@ -1,4 +1,4 @@
-"""HTMX and full-page views for the three public operational dashboards."""
+"""Vistas completas y fragmentos reactivos de los portales operativos."""
 
 from django.core.exceptions import ValidationError
 from django.db.models import Prefetch, Q
@@ -10,45 +10,33 @@ from apps.people.models import Affiliation, Identity, ProfileTypeDefinition
 
 from .forms import ExtensionRegistrationForm, PostgradoRegistrationForm
 from .services import register_affiliation
+from .permissions import StaffPortalMixin
+from .student_grid import student_grid_context
 
 
 def _is_htmx(request):
     return request.headers.get("HX-Request", "").lower() == "true"
 
 
-class AdministracionDashboardView(View):
-    """Search grade identities and their current grade affiliations."""
+class AdministracionDashboardView(StaffPortalMixin, View):
+    """Lista alumnos y sus vinculaciones mediante filtros y paginación en el servidor."""
 
     template_name = "portal/administracion.html"
     fragment_name = "portal/fragments/administracion_results.html"
 
     def get(self, request):
-        query = request.GET.get("q", "").strip()
-        identities = Identity.objects.none()
-        if query:
-            grade_affiliations = Affiliation.objects.filter(
-                profile_type__code="ALUMNO"
-            ).select_related("profile_type", "current_status")
-            identities = (
-                Identity.objects.filter(
-                    Q(identifier__icontains=query)
-                    | Q(first_name__icontains=query)
-                    | Q(last_name__icontains=query),
-                    affiliations__profile_type__code="ALUMNO",
-                )
-                .distinct()
-                .prefetch_related(
-                    Prefetch("affiliations", queryset=grade_affiliations, to_attr="grade_affiliations")
-                )
-                .order_by("last_name", "first_name")[:50]
-            )
-        context = {"query": query, "identities": identities}
+        context = student_grid_context(request.GET)
         template = self.fragment_name if _is_htmx(request) else self.template_name
+        #FPORTALVIEWS001-8001: Respuesta HTTP explícita o predeterminada: mantiene el contrato de página, fragmento o redirección.
         return render(request, template, context)
 
 
+class AdministracionSearchView(AdministracionDashboardView):
+    template_name = 'portal/fragments/administracion_results.html'
+
+
 class RegistrationDashboardView(View):
-    """Shared GET/POST behavior for a program-specific registration screen."""
+    """Comportamiento compartido de consulta y registro de inscripciones por área."""
 
     template_name = ""
     fragment_name = ""
@@ -71,6 +59,7 @@ class RegistrationDashboardView(View):
     def get(self, request):
         context = self.get_context(self.form_class(), affiliations=self.get_affiliations())
         template = self.fragment_name if _is_htmx(request) else self.template_name
+        #FPORTALVIEWS002-8002: Respuesta HTTP explícita o predeterminada: mantiene el contrato de página, fragmento o redirección.
         return render(request, template, context)
 
     def post(self, request):
@@ -85,11 +74,14 @@ class RegistrationDashboardView(View):
                 reference=reference,
                 form_data=form.cleaned_data,
             )
+        #FPORTALVIEWS003-8003: Trata el fallo en este límite y conserva la política de respuesta o recuperación.
         except ValidationError as error:
+            #FPORTALVIEWS004-8004: Devuelve un error de validación sin confirmar una operación inválida.
             form.add_error(None, error)
             return self.render_invalid(request, form)
 
         if _is_htmx(request):
+            #FPORTALVIEWS005-8005: Respuesta HTTP explícita o predeterminada: mantiene el contrato de página, fragmento o redirección.
             return render(
                 request,
                 self.row_template,
@@ -100,16 +92,19 @@ class RegistrationDashboardView(View):
                     "success_message": "Inscripción registrada correctamente.",
                 },
             )
+        #FPORTALVIEWS006-8006: Respuesta HTTP 302: mantiene el contrato de página, fragmento o redirección.
         return redirect(request.path)
 
     def render_invalid(self, request, form):
         if _is_htmx(request):
+            #FPORTALVIEWS007-8007: Respuesta HTTP explícita o predeterminada: mantiene el contrato de página, fragmento o redirección.
             return render(
                 request,
                 "portal/fragments/registration_errors.html",
                 {"form": form, "feedback_id": self.feedback_id},
             )
         context = self.get_context(form, affiliations=self.get_affiliations())
+        #FPORTALVIEWS008-8008: Respuesta HTTP 422: mantiene el contrato de página, fragmento o redirección.
         return render(request, self.template_name, context, status=422)
 
     def get_context(self, form, *, affiliations):
@@ -117,7 +112,7 @@ class RegistrationDashboardView(View):
 
 
 class PostgradoDashboardView(RegistrationDashboardView):
-    """Register postgraduate students and append them to the live grid."""
+    """Registra estudiantes de posgrado y actualiza la grilla reactiva."""
 
     template_name = "portal/postgrado.html"
     fragment_name = "portal/fragments/postgrado_content.html"
@@ -129,7 +124,7 @@ class PostgradoDashboardView(RegistrationDashboardView):
 
 
 class ExtensionDashboardView(RegistrationDashboardView):
-    """Register extension course participants and append them to the live grid."""
+    """Registra participantes de extensión y actualiza la grilla reactiva."""
 
     template_name = "portal/extension.html"
     fragment_name = "portal/fragments/extension_content.html"

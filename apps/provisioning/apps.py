@@ -1,10 +1,10 @@
-"""Django application configuration for asynchronous provisioning."""
+"""Configuración Django de la orquestación asíncrona."""
 
 from django.apps import AppConfig
 
 
 class ProvisioningConfig(AppConfig):
-    """Registers worker orchestration services without owning ORM tables."""
+    """Registra la orquestación de trabajadores sin definir tablas propias."""
 
     default_auto_field = "django.db.models.BigAutoField"
     name = "apps.provisioning"

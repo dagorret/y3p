@@ -1,10 +1,11 @@
-"""Domain saga runner for durable Graph, Moodle and SMTP provisioning steps."""
+"""Orquestador de estados y resultados persistentes de Graph, Moodle y SMTP."""
 
 import secrets
 import string
 from datetime import timedelta
 
 from django.conf import settings
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.utils import timezone
 
@@ -24,18 +25,22 @@ from apps.integrations.models import AdmissionCourseRule
 from apps.people.models import Affiliation, OutboxEvent
 
 
+#FPROVISIONINGORCHESTRATOR001-8001: Declara la excepción de dominio PermanentProvisioningError para distinguir esta regla.
 class PermanentProvisioningError(Exception):
-    """Nonretryable local or provider result that needs operator correction."""
+    """Fallo no reintentable que requiere una corrección del operador o de configuración."""
 
 
 def run_saga(event_id, *, graph=None, moodle=None, mailer=None, dry_run=None, enqueue_moodle=None):
-    """Execute one event up to its Moodle continuation or terminal state.
+    """Ejecuta un evento hasta su continuación Moodle o su estado final.
 
-    Provider calls happen outside database transactions. Every confirmed action
-    is then stored through a short locked checkpoint write, so a retry resumes
-    after the last committed step. The password-and-mail stage is atomic at the
-    orchestration level: every retry generates a fresh ephemeral secret and
-    stores only the result metadata.
+    Las llamadas remotas ocurren fuera de las transacciones. Cada paso
+    confirmado registra un punto de control en una escritura breve y bloqueada;
+    un reintento continúa desde ese punto. La etapa de contraseña y correo
+    regenera un secreto efímero en cada intento y conserva solo sus metadatos.
+
+    Se acepta consistencia eventual entre proveedores para evitar bloqueos
+    largos de PostgreSQL. Las operaciones remotas deben tolerar repeticiones:
+    una caída puede ocurrir después de la respuesta y antes del registro local.
     """
 
     simulated = settings.LUCY_DRY_RUN if dry_run is None else bool(dry_run)
@@ -44,29 +49,49 @@ def run_saga(event_id, *, graph=None, moodle=None, mailer=None, dry_run=None, en
     mailer = mailer or _mailer_client(simulated)
     event = _load_event(event_id)
     if event.status != OutboxEvent.Status.PROCESSING:
-        #FSRV25-6025: Duplicate or stale task messages cannot run without a committed dispatcher claim.
+        #FSRV25-6025: Una tarea duplicada no se ejecuta sin una reclamación PROCESSING confirmada.
         return event.status
     try:
-        if event.action == "PROVISION":
+        if event.action == 'SUPPORT':
+            return _run_support(event, simulated)
+        elif event.action == "PROVISION":
             state = _run_provision(event_id, event, graph, moodle, mailer, simulated, enqueue_moodle)
         elif event.action in {"SUSPEND", "TERMINATE"}:
             state = _run_suspend(event_id, event, graph, moodle, simulated, enqueue_moodle)
         else:
-            #FSRV01-6001: Unknown intent is permanent configuration error, never silently ignored.
+            #FSRV01-6001: Una acción desconocida es un error permanente de configuración.
             raise PermanentProvisioningError(f"Acción de outbox no soportada: {event.action}.")
         return state
+    #FPROVISIONINGORCHESTRATOR003-8003: Trata el fallo en este límite y conserva la política de respuesta o recuperación.
     except Exception as error:
-        #FSRV02-6002: Every exception leaves PROCESSING through durable retry or FAILED state.
+        #FSRV02-6002: Todo fallo abandona PROCESSING mediante reintento persistido o estado final.
         return record_failure(event_id, error)
 
 
+def _run_support(event, simulated):
+    """Reutiliza FIFO, recuperación y checkpoints para las órdenes de ventanilla."""
+    from apps.people.support import perform_support
+    operation = event.payload.get('support_action')
+    if event.requested_by is None or operation not in ('credentials', 'moodle_enrol', 'license'):
+        #FPROVISIONINGORCHESTRATOR004-8004: Origina PermanentProvisioningError; el llamador conserva la causa y decide su tratamiento.
+        raise PermanentProvisioningError('La solicitud administrativa no es válida.')
+    checkpoint = _checkpoint_value(event.pk, 'support')
+    if checkpoint.get('status') == 'CONFIRMED':
+        return _mark_terminal(event.pk, simulated=checkpoint.get('simulated', False))
+    result = perform_support(event.identity_id, operation, user=event.requested_by, dry_run=simulated,
+                             **event.payload.get('support_options', {}))
+    _save_checkpoint(event.pk, 'support', 'CONFIRMED', simulated=result.simulated,
+                     details={'action': result.action, 'batch_id': event.payload.get('batch_id')})
+    return _mark_terminal(event.pk, simulated=result.simulated)
+
+
 def _run_provision(event_id, event, graph, moodle, mailer, simulated, enqueue_moodle):
-    """Provision Graph, license, Moodle continuation, then credentials email."""
+    """Aprovisiona Graph, licencia y Moodle; luego envía las credenciales."""
 
     payload = event.payload
     upn = payload.get("upn", "")
     if not upn:
-        #FSRV03-6003: An institutionally assigned UPN is required before external account mutation.
+        #FSRV03-6003: El UPN institucional debe estar definido antes de modificar cuentas remotas.
         raise PermanentProvisioningError("La identidad no tiene institutional_upn configurado.")
 
     if not _checkpoint_complete(event_id, "graph_user"):
@@ -74,7 +99,7 @@ def _run_provision(event_id, event, graph, moodle, mailer, simulated, enqueue_mo
         if existing is not None:
             graph_result = existing
         else:
-            #FSRV04-6004: The bootstrap password is discarded and never written to checkpoints.
+            #FSRV04-6004: La contraseña inicial se descarta y no se guarda en los puntos de control.
             bootstrap_password = _temporary_password()
             try:
                 graph_result = graph.create_user(
@@ -99,7 +124,7 @@ def _run_provision(event_id, event, graph, moodle, mailer, simulated, enqueue_mo
     if requires_license and not _checkpoint_complete(event_id, "license"):
         sku_id = settings.LUCY_M365_SKU_ID
         if not sku_id:
-            #FSRV05-6005: Missing SKU is permanent configuration failure, no remote write is attempted.
+            #FSRV05-6005: La falta de SKU es un fallo permanente antes de cualquier escritura remota.
             raise ConfigurationError("Falta configurar M365_A1_SKU_ID.")
         result = graph.assign_license(upn, sku_id)
         _save_checkpoint(
@@ -115,7 +140,7 @@ def _run_provision(event_id, event, graph, moodle, mailer, simulated, enqueue_mo
     if not _checkpoint_complete(event_id, "moodle"):
         _mark_waiting_subtask(event_id)
         if enqueue_moodle:
-            #FSRV06-6006: Moodle continues on its isolated queue; this worker never waits on a result.
+            #FSRV06-6006: Moodle continúa en su cola independiente; el trabajador no espera el resultado.
             enqueue_moodle(event_id)
         else:
             from celery import current_app
@@ -125,22 +150,22 @@ def _run_provision(event_id, event, graph, moodle, mailer, simulated, enqueue_mo
 
     if not _checkpoint_complete(event_id, "password_and_mail"):
         if not graph_state.get("details", {}).get("created", False):
-            #FSRV07-6007: Existing accounts are never reset or sent a new password.
+            #FSRV07-6007: Las cuentas existentes no cambian de clave ni reciben credenciales nuevas.
             _save_checkpoint(event_id, "password_and_mail", "SKIPPED_EXISTING_USER", simulated=simulated)
         else:
             _send_credentials(event_id, graph, mailer, payload, simulated)
 
-    #FSRV08-6008: A dry-run is terminal but distinct from a remotely completed event.
+    #FSRV08-6008: La simulación finaliza en un estado diferente del éxito real.
     return _mark_terminal(event_id, simulated=simulated)
 
 
 def _run_suspend(event_id, event, graph, moodle, simulated, enqueue_moodle):
-    """Remove this affiliation's Moodle access and preserve shared M365 access."""
+    """Retira accesos Moodle de esta vinculación y conserva los accesos compartidos requeridos."""
 
     if not _checkpoint_complete(event_id, "moodle"):
         _mark_waiting_subtask(event_id)
         if enqueue_moodle:
-            #FSRV09-6009: Suspension Moodle work follows the same asynchronous continuation.
+            #FSRV09-6009: La suspensión usa la misma continuación asíncrona de Moodle.
             enqueue_moodle(event_id)
         else:
             from celery import current_app
@@ -148,7 +173,7 @@ def _run_suspend(event_id, event, graph, moodle, simulated, enqueue_moodle):
             current_app.send_task("provisioning.moodle_step", args=[event_id], queue="moodle")
         return OutboxEvent.Status.WAITING_SUBTASK
 
-    #FSRV10-6010: License and account decisions use live active affiliations, excluding this one.
+    #FSRV10-6010: Consulta las otras vinculaciones activas antes de decidir sobre accesos compartidos.
     other_active = Affiliation.objects.filter(
         identity_id=event.identity_id, is_active=True
     ).exclude(pk=event.affiliation_id).select_related("current_status")
@@ -159,11 +184,11 @@ def _run_suspend(event_id, event, graph, moodle, simulated, enqueue_moodle):
 
     if still_required:
         if not _checkpoint_complete(event_id, "license"):
-            #FSRV11-6011: Another active affiliation still requires the shared license.
+            #FSRV11-6011: Otra vinculación activa todavía requiere la licencia compartida.
             _save_checkpoint(event_id, "license", "SKIPPED_STILL_REQUIRED", simulated=simulated)
     elif not _checkpoint_complete(event_id, "license"):
         if not sku_id:
-            #FSRV12-6012: Missing SKU blocks a needed license removal.
+            #FSRV12-6012: Sin SKU no puede confirmarse el retiro de licencia.
             raise ConfigurationError("Falta configurar M365_A1_SKU_ID.")
         result = graph.remove_license(upn, sku_id)
         _save_checkpoint(
@@ -174,7 +199,7 @@ def _run_suspend(event_id, event, graph, moodle, simulated, enqueue_moodle):
 
     if account_still_active:
         if not _checkpoint_complete(event_id, "graph_disable"):
-            #FSRV13-6013: Other active affiliations keep the shared Entra account enabled.
+            #FSRV13-6013: Otras vinculaciones activas conservan habilitada la cuenta Entra.
             _save_checkpoint(event_id, "graph_disable", "SKIPPED_STILL_ACTIVE", simulated=simulated)
     elif not _checkpoint_complete(event_id, "graph_disable"):
         result = graph.disable_user(upn)
@@ -184,34 +209,35 @@ def _run_suspend(event_id, event, graph, moodle, simulated, enqueue_moodle):
             details={"enabled": False},
         )
 
-    #FSRV14-6014: TERMINATE follows suspend until the institution approves remote deletion.
+    #FSRV14-6014: TERMINATE suspende hasta que exista una política institucional de borrado remoto.
     if event.action == "TERMINATE" and not _checkpoint_complete(event_id, "graph_delete"):
         _save_checkpoint(event_id, "graph_delete", "SKIPPED_POLICY", simulated=simulated)
     return _mark_terminal(event_id, simulated=simulated)
 
 
 def run_moodle_step(event_id, *, moodle=None, dry_run=None):
-    """Execute one Moodle continuation outside a DB transaction and checkpoint it.
+    """Ejecuta la continuación Moodle fuera de una transacción de base de datos.
 
-    The event remains WAITING_SUBTASK while network calls run. On success the
-    checkpoint and PENDING continuation state commit together; the task caller
-    may then re-enqueue the dispatcher. Failures are returned to durable retry
-    handling without leaving the event waiting indefinitely.
+    El evento conserva WAITING_SUBTASK durante las llamadas de red. Al
+    confirmar la etapa, el resultado y la continuación PENDING se guardan
+    juntos. El llamador puede solicitar otro despacho sin perder ese avance.
+    Los fallos vuelven a la política persistente de reintentos para no dejar
+    una espera indefinida.
     """
 
     event = _load_event(event_id)
     if event.status != OutboxEvent.Status.WAITING_SUBTASK:
-        #FSRV15-6015: A stale duplicate continuation cannot execute after state has moved.
+        #FSRV15-6015: Una continuación duplicada no actúa después de cambiar el estado.
         return event.status
     simulated = settings.LUCY_DRY_RUN if dry_run is None else bool(dry_run)
     moodle = moodle or _moodle_client(simulated)
     try:
         outcome = _perform_moodle(event, moodle)
-        #FSRV16-6016: Checkpoint and requeue state are one short transaction after remote success.
+        #FSRV16-6016: El resultado Moodle y la continuación se confirman juntos después de la respuesta remota.
         with transaction.atomic():
             locked = OutboxEvent.objects.select_for_update().get(pk=event_id)
             if locked.status != OutboxEvent.Status.WAITING_SUBTASK:
-                #FSRV26-6026: A task that lost the race with the sweeper cannot overwrite its recovery state.
+                #FSRV26-6026: Un trabajador vencido no sobrescribe la recuperación realizada por el barrido.
                 return locked.status
             results = dict(locked.step_results)
             results["moodle"] = {
@@ -228,18 +254,21 @@ def run_moodle_step(event_id, *, moodle=None, dry_run=None):
                 update_fields=["step_results", "status", "locked_at", "heartbeat_at", "last_error"]
             )
         return OutboxEvent.Status.PENDING
+    #FPROVISIONINGORCHESTRATOR008-8008: Trata el fallo en este límite y conserva la política de respuesta o recuperación.
     except Exception as error:
-        #FSRV17-6017: Moodle failures use the same bounded durable retry policy as the main saga.
+        #FSRV17-6017: Los fallos Moodle usan los mismos reintentos persistidos y acotados.
         return record_failure(event_id, error, checkpoint="moodle")
 
 
 def _perform_moodle(event, moodle):
-    """Converge Moodle user, course enrollment and optional commission group."""
+    """Converge usuario Moodle, matrículas y grupo de comisión opcional."""
 
     payload = event.payload
     upn = payload.get("upn", "")
     shortname = payload.get("course_shortname", "")
     if event.action == "PROVISION":
+        if payload.get('identity_category', event.identity.category) == 'ORGANIZACIONAL' and not shortname:
+            return {'status': 'SKIPPED_NOT_PEDAGOGICAL', 'simulated': False, 'details': {}}
         profile_code = payload.get("profile_type_code", event.affiliation.profile_type.code)
         status_code = payload.get("provisioning_status", event.affiliation.current_status.code)
         if profile_code == "ALUMNO" and status_code == "INGRE":
@@ -265,17 +294,19 @@ def _perform_moodle(event, moodle):
         for shortname in shortnames:
             course = moodle.get_course_by_shortname(shortname)
             if course is None:
-                #FSRV18-6018: Missing course is a typed resource error, not a false success.
+                #FSRV18-6018: Un curso ausente es un error de recurso, nunca un éxito supuesto.
                 raise ResourceNotFoundError(f"No existe el curso Moodle {shortname}.")
             course_id = int(course["id"])
             enrollment = moodle.enrol_user(user.id, course_id, role_id=5)
             if not enrollment.success:
+                #FPROVISIONINGORCHESTRATOR010-8010: Origina IntegrationError; el llamador conserva la causa y decide su tratamiento.
                 raise IntegrationError(f"No se confirmó la matrícula en Moodle {shortname}.")
             simulated = simulated or enrollment.simulated
             if group_name:
                 group_id = moodle.get_or_create_group(course_id, group_name)
                 group = moodle.add_user_to_group(group_id, user.id, course_id=course_id)
                 if not group.success:
+                    #FPROVISIONINGORCHESTRATOR011-8011: Origina IntegrationError; el llamador conserva la causa y decide su tratamiento.
                     raise IntegrationError(f"No se confirmó el grupo en Moodle {shortname}.")
                 simulated = simulated or group.simulated
             enrollments.append({"shortname": shortname, "course_id": course_id, "group": group_name})
@@ -302,7 +333,7 @@ def _perform_moodle(event, moodle):
 
 
 def _send_credentials(event_id, graph, mailer, payload, simulated):
-    """Rotate the credential and deliver it in one checkpointable ephemeral step."""
+    """Regenera la clave y envía el correo como una etapa con resultado persistente."""
 
     password = _temporary_password()
     try:
@@ -318,9 +349,9 @@ def _send_credentials(event_id, graph, mailer, payload, simulated):
         if not delivery.success:
             error_type = (delivery.error_message or "DeliveryError").split(":", 1)[0]
             if error_type in {"ValueError", "ConfigurationError", "InvalidRecipientError"}:
-                #FSRV19-6019: Invalid local mail configuration is permanent until operator correction.
+                #FSRV19-6019: Una configuración de correo inválida requiere intervención operativa.
                 raise PermanentProvisioningError(f"Entrega de credenciales inválida ({error_type}).")
-            #FSRV20-6020: Transient SMTP failures retry and generate a different secret next attempt.
+            #FSRV20-6020: Un fallo transitorio SMTP reintenta con una contraseña diferente.
             raise RemoteServiceUnavailableError(f"Entrega SMTP fallida ({error_type}).")
         _save_checkpoint(
             event_id,
@@ -332,18 +363,20 @@ def _send_credentials(event_id, graph, mailer, payload, simulated):
             details={"sent": True},
         )
     finally:
-        #FSRV21-6021: The ephemeral secret is dropped even if Graph or SMTP raises.
+        #FSRV21-6021: El secreto efímero se descarta también cuando falla Graph o SMTP.
         del password
 
 
 def record_failure(event_id, error, *, checkpoint=None):
-    """Persist retry or terminal failure without recording remote secrets."""
+    """Persiste un reintento o fallo final sin registrar secretos remotos."""
 
     now = timezone.now()
     permanent = isinstance(
         error,
         (
             PermanentProvisioningError,
+            PermissionDenied,
+            ValidationError,
             AuthenticationError,
             OperationForbiddenError,
             ConfigurationError,
@@ -357,7 +390,7 @@ def record_failure(event_id, error, *, checkpoint=None):
             event.attempts += 1
         exhausted = not is_rate_limit and event.attempts >= event.max_attempts
         if permanent or exhausted:
-            #FSRV22-6022: Nonretryable or exhausted events become terminal and continue blocking FIFO.
+            #FSRV22-6022: Un fallo permanente o agotado conserva el bloqueo lógico de órdenes posteriores.
             event.status = OutboxEvent.Status.FAILED
             event.processed_at = now
             event.retry_after = None
@@ -368,7 +401,7 @@ def record_failure(event_id, error, *, checkpoint=None):
             event.retry_after = now + timedelta(seconds=max(1, int(delay)))
         event.locked_at = None
         event.heartbeat_at = now
-        event.last_error = f"{error.__class__.__name__}: provisioning step failed."
+        event.last_error = f"{error.__class__.__name__}: falló una etapa de aprovisionamiento."
         if checkpoint:
             results = dict(event.step_results)
             results[checkpoint] = {
@@ -387,11 +420,11 @@ def record_failure(event_id, error, *, checkpoint=None):
 
 
 def _save_checkpoint(event_id, name, status, *, simulated=False, details=None):
-    """Merge one confirmed step into freshly locked JSON checkpoint data."""
+    """Agrega un resultado confirmado bajo bloqueo de la fila actual."""
 
     with transaction.atomic():
         event = OutboxEvent.objects.select_for_update().get(pk=event_id)
-        #FSRV23-6023: Each checkpoint merges the latest JSON, never a stale worker snapshot.
+        #FSRV23-6023: Cada paso combina sus resultados bajo bloqueo con la versión actual de la fila.
         results = dict(event.step_results)
         results[name] = {"status": status, "simulated": bool(simulated), "details": details or {}}
         event.step_results = results
@@ -401,7 +434,7 @@ def _save_checkpoint(event_id, name, status, *, simulated=False, details=None):
 
 
 def _checkpoint_complete(event_id, name):
-    """Return whether a step is already confirmed or explicitly skipped."""
+    """Comprueba si un paso ya fue confirmado u omitido de forma explícita."""
 
     value = _checkpoint_value(event_id, name)
     status = value.get("status", "")
@@ -409,18 +442,18 @@ def _checkpoint_complete(event_id, name):
 
 
 def _checkpoint_value(event_id, name):
-    """Read one checkpoint from the current durable event row."""
+    """Lee un punto de control del evento persistido actualmente."""
 
     event = OutboxEvent.objects.only("step_results").get(pk=event_id)
     return event.step_results.get(name, {})
 
 
 def _mark_waiting_subtask(event_id):
-    """Commit WAITING_SUBTASK before a task is published to the Moodle queue."""
+    """Confirma WAITING_SUBTASK antes de publicar su continuación Moodle."""
 
     with transaction.atomic():
         event = OutboxEvent.objects.select_for_update().get(pk=event_id)
-        #FSRV24-6024: Durable waiting state precedes broker submission and is recoverable by sweeper.
+        #FSRV24-6024: La espera queda persistida antes de publicar y puede ser recuperada por el barrido.
         event.status = OutboxEvent.Status.WAITING_SUBTASK
         event.locked_at = None
         event.heartbeat_at = timezone.now()
@@ -428,7 +461,7 @@ def _mark_waiting_subtask(event_id):
 
 
 def _mark_terminal(event_id, *, simulated):
-    """Finish event and timestamp in one final transaction."""
+    """Finaliza el evento y registra su instante en una transacción breve."""
 
     with transaction.atomic():
         event = OutboxEvent.objects.select_for_update().get(pk=event_id)
@@ -446,22 +479,22 @@ def _mark_terminal(event_id, *, simulated):
 
 
 def _load_event(event_id):
-    """Read event context without retaining a database lock during provider I/O."""
+    """Lee el contexto del evento sin conservar un bloqueo durante llamadas a proveedores."""
 
     return OutboxEvent.objects.select_related(
-        "identity", "affiliation", "affiliation__current_status"
+        "identity", "requested_by", "affiliation", "affiliation__profile_type", "affiliation__current_status"
     ).get(pk=event_id)
 
 
 def _temporary_password(length=32):
-    """Generate an ephemeral policy-safe password with letters, digits and symbols."""
+    """Genera una clave efímera con letras, dígitos y símbolos."""
 
     alphabet = string.ascii_letters + string.digits + "!@#$%_-"
     return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
 def _backoff(attempts):
-    """Return bounded exponential retry delay with jitter."""
+    """Calcula una espera exponencial acotada con dispersión aleatoria."""
 
     import random
 
@@ -469,7 +502,7 @@ def _backoff(attempts):
 
 
 def _graph_client(dry_run):
-    """Build a Graph adapter from settings without performing network I/O."""
+    """Construye el adaptador Graph desde la configuración sin acceder a la red."""
 
     return MicrosoftGraphClient(
         tenant_id=settings.LUCY_M365_TENANT_ID,
@@ -480,7 +513,7 @@ def _graph_client(dry_run):
 
 
 def _moodle_client(dry_run):
-    """Build a Moodle adapter from settings without performing network I/O."""
+    """Construye el adaptador Moodle desde la configuración sin acceder a la red."""
 
     return MoodleRestClient(
         base_url=settings.LUCY_MOODLE_BASE_URL,
@@ -490,7 +523,7 @@ def _moodle_client(dry_run):
 
 
 def _mailer_client(dry_run):
-    """Build a secure SMTP adapter from environment-backed Django settings."""
+    """Construye el adaptador SMTP seguro desde las variables de entorno."""
 
     return MailerClient(
         host=settings.LUCY_SMTP_HOST,

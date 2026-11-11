@@ -1,1 +1,1 @@
-"""Provisioning management commands."""
+"""Comandos de gestión del aprovisionamiento."""

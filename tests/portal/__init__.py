@@ -1,1 +1,1 @@
-"""Tests for the public operational dashboards."""
+"""Pruebas de los portales operativos de inscripción."""

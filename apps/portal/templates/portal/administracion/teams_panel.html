@@ -1,0 +1,40 @@
+<section id="teams-panel" class="space-y-6">
+  <header class="flex flex-wrap items-center justify-between gap-4">
+    <div><h1 class="text-3xl font-bold">Gestión de Teams / Cátedras</h1><p class="mt-2 text-slate-600">Creación de equipos educativos y limpieza al cierre de ciclo.</p></div>
+    <a href="{% url 'portal:team_create' %}" class="rounded-lg bg-blue-700 px-5 py-3 font-semibold text-white">Nuevo equipo</a>
+  </header>
+  {% if message %}<div role="status" aria-live="polite" class="rounded-xl p-4 {% if error %}bg-red-100 text-red-900{% else %}bg-emerald-100 text-emerald-900{% endif %}">{{ message }}</div>{% endif %}
+  {% if feedback %}<div role="status" class="rounded-xl p-4 {% if error %}bg-red-100 text-red-900{% else %}bg-emerald-100 text-emerald-900{% endif %}">{{ feedback }}</div>{% endif %}
+  <div class="overflow-x-auto rounded-xl border bg-white"><table class="w-full text-left text-sm" id="teams-grid">
+    <thead class="bg-slate-100"><tr><th class="p-3">Equipo / cátedra</th><th class="p-3">Owner institucional</th><th class="p-3">Miembros Teams</th><th class="p-3">Matriculados Moodle</th><th class="p-3">Paridad</th><th class="p-3">Acciones</th></tr></thead>
+    <tbody>{% for team in teams %}<tr class="border-t align-top">
+      <td class="p-3"><strong>{{ team.display_name }}</strong><p class="text-xs">{{ team.pk }}</p><p>Curso: {{ team.moodle_shortname|default:"Sin asociar" }} · {{ team.commission }}</p></td>
+      <td class="p-3">{{ team.owner_upn|default:"Por confirmar" }}</td><td class="p-3">{{ team.member_count|default_if_none:"—" }}</td><td class="p-3">{{ team.moodle_count|default_if_none:"—" }}</td>
+      <td class="p-3"><span class="rounded-full px-3 py-1 {% if team.parity == 'Normal' %}bg-emerald-100 text-emerald-900{% else %}bg-yellow-100 text-yellow-900{% endif %}">{{ team.parity }}</span><p class="mt-2 text-xs">Faltantes: {{ team.missing_count }} · extras: {{ team.extra_count }}</p></td>
+      <td class="space-y-2 p-3"><a class="block text-blue-700 underline" href="{% url 'portal:team_populate' team.pk %}">Poblar Equipo</a><a class="block text-blue-700 underline" href="{% url 'portal:team_members' team.pk %}">Ver Miembros</a>{% if can_administer_critical %}<a class="block text-red-700 underline" href="{% url 'portal:team_purge' team.pk %}">Purgar Cuatrimestre</a>{% endif %}</td>
+    </tr>{% empty %}<tr><td colspan="6" class="p-6 text-slate-600">Sin equipos registrados en el inventario local.</td></tr>{% endfor %}</tbody>
+  </table></div>
+  <p class="text-xs text-slate-600">Paridad entre alumnos miembros (sin propietarios) y matrículas Moodle de estudiante del curso/comisión asociados. Los totales Teams incluyen propietarios. En mocks se consultan tablas locales; fuera de mocks se muestran observaciones guardadas, actualizables desde Ver Miembros.</p>
+  <nav class="flex justify-between" aria-label="Paginación de equipos">{% if teams_page.has_previous %}<a href="?page={{ teams_page.previous_page_number }}">Anterior</a>{% endif %}<span>Página {{ teams_page.number }} de {{ teams_page.paginator.num_pages }}</span>{% if teams_page.has_next %}<a href="?page={{ teams_page.next_page_number }}">Siguiente</a>{% endif %}</nav>
+  <section class="rounded-2xl bg-white p-6 shadow-sm">
+    <h2 class="text-xl font-bold">Limpiar miembros</h2>
+    <p class="my-3 text-slate-600">Se conservan todos los propietarios. Los docentes responsables deben tener rol de propietario en Teams; los miembros sin ese rol se retiran. La limpieza no elimina el equipo ni sus contenidos.</p>
+    <form method="post" action="{% url 'portal:team_purge_form' %}" hx-post="{% url 'portal:team_purge_form' %}" hx-target="#teams-panel" hx-swap="outerHTML" hx-disabled-elt="find button" hx-confirm="¿Retirar a los miembros del equipo conservando sus propietarios?">
+      {% csrf_token %}{{ purge_form.as_p }}
+      <button class="rounded-lg border border-red-700 px-5 py-3 text-red-700 disabled:opacity-50">Limpiar comisión</button>
+    </form>
+  </section>
+  <section class="rounded-2xl bg-white p-6 shadow-sm">
+    <h2 class="mb-4 text-xl font-bold">Actividad del portal</h2>
+    <p class="mb-4 text-sm text-slate-600">Últimas 30 operaciones registradas aquí; no es un inventario completo del tenant. ACCEPTED indica una solicitud aún no confirmada como equipo disponible.</p>
+    <div class="overflow-x-auto"><table class="w-full text-left text-sm">
+      <thead><tr><th class="p-2">Fecha / operador</th><th class="p-2">Equipo / acción</th><th class="p-2">Estado</th><th class="p-2">Acceso</th></tr></thead>
+      <tbody>{% for operation in team_operations %}<tr class="border-t">
+        <td class="p-2">{{ operation.at }}<br>{{ operation.user }}</td>
+        <td class="p-2">{{ operation.name }} {{ operation.team_id|default:"ID pendiente" }}<br>{{ operation.action }}</td>
+        <td class="p-2">{{ operation.status }}{% if operation.action == 'purge_team' %} · {{ operation.affected_count|default:0 }} retirados{% endif %}</td>
+        <td class="p-2">{% if operation.team_id %}<a class="text-blue-700 underline" href="{% url 'portal:team_purge' operation.team_id %}">Preparar limpieza</a>{% endif %}</td>
+      </tr>{% empty %}<tr><td colspan="4" class="p-4 text-slate-600">Sin operaciones registradas.</td></tr>{% endfor %}</tbody>
+    </table></div>
+  </section>
+</section>

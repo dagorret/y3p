@@ -1,4 +1,4 @@
-"""Admin coverage for operational outbox inspection and actions."""
+"""Pruebas del administrador para inspeccionar eventos y ejecutar acciones."""
 
 from uuid import uuid4
 

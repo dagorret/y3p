@@ -1,4 +1,4 @@
-"""Offer regular and pre-enrollment initial choices to portal registrations."""
+"""Ofrece estados iniciales de regularidad y preinscripción para los portales."""
 
 from django.db import migrations
 
