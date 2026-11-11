@@ -116,10 +116,46 @@ class SagaStatusDefinition(models.Model):
         blank=True,
         help_text="Acción de aprovisionamiento emitida al entrar a este estado.",
     )
-    requires_m365_license = models.BooleanField(
-        default=False,
-        help_text="Indica si una afiliación activa en este estado requiere licencia M365.",
+    class TargetPlatform(models.TextChoices):
+        MOODLE = "MOODLE", "Moodle FCE"
+        EVELIA = "EVELIA", "Evelia UNRC"
+        CANVAS = "CANVAS", "Canvas LMS"
+        OTRO = "OTRO", "Otro"
+
+    target_platform = models.CharField(
+        max_length=20,
+        choices=TargetPlatform.choices,
+        default=TargetPlatform.MOODLE,
+        help_text="Plataforma pedagógica a la que se destina el vínculo.",
     )
+    requires_collaboration_account = models.BooleanField(
+        default=True,
+        help_text="Indica si el estado exige generar cuenta institucional oficial (ej. Teams).",
+    )
+    requires_collaboration_license = models.BooleanField(
+        default=False,
+        help_text="Determina si debe consumir SKU de licencia activa.",
+    )
+
+    @property
+    def requires_m365_license(self):
+        """Alias temporal para consumidores que usan el nombre anterior."""
+
+        return self.requires_collaboration_license
+
+    @requires_m365_license.setter
+    def requires_m365_license(self, value):
+        self.requires_collaboration_license = value
+
+    def save(self, *args, **kwargs):
+        """Admite el alias anterior también en escrituras parciales de instancia."""
+
+        if kwargs.get("update_fields") is not None:
+            kwargs["update_fields"] = {
+                "requires_collaboration_license" if field == "requires_m365_license" else field
+                for field in kwargs["update_fields"]
+            }
+        return super().save(*args, **kwargs)
 
     class Meta:
         """Impone unicidad de códigos, estado inicial y coherencia de banderas."""
