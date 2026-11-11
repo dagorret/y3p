@@ -385,6 +385,36 @@ class Identity(models.Model):
         return f"{self.first_name} {self.last_name}".strip()
 
 
+class DigitalAccount(models.Model):
+    """Cuenta digital vinculada a una identidad, única dentro de su plataforma."""
+
+    class Platform(models.TextChoices):
+        TEAMS = "TEAMS", "Microsoft Teams / 365"
+        GOOGLE = "GOOGLE", "Google Workspace"
+        MOODLE = "MOODLE", "Moodle FCE"
+        PERSONAL = "PERSONAL", "Correo Personal"
+        OTRO = "OTRO", "Otro"
+
+    id = models.BigAutoField(primary_key=True)
+    identity = models.ForeignKey(
+        Identity, on_delete=models.CASCADE, related_name="digital_accounts"
+    )
+    platform = models.CharField(max_length=20, choices=Platform.choices)
+    account_identifier = models.CharField(max_length=255)
+    is_active = models.BooleanField(default=True)
+    content_hash = models.CharField(max_length=64, blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["platform", "account_identifier"], name="uq_account_per_platform"
+            ),
+        ]
+        indexes = [models.Index(fields=["platform", "identity"])]
+
+
 class PersonalProfile(models.Model):
     """Datos personales opcionales con relación uno a uno con una identidad.
 
