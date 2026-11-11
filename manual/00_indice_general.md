@@ -9,6 +9,8 @@ Este manual acompaña a operadores de secretarías, autoridades y administradore
 
 La versión incluye identidades y vinculaciones, reglas de estados, adaptadores externos, registro de trabajos pendientes (Outbox), administración Unfold y portales HTMX. Incorpora además utilidades UUIDv8 y huellas SHA-256, y el modelo `DigitalAccount`.
 
+El capítulo 06 complementa esa referencia con el procedimiento de evolución posterior: incorporación de plataformas y proveedores de identidad. Distingue la parametrización disponible de las integraciones que aún deben desarrollarse.
+
 > [!NOTE]
 > UUIDv8 y DigitalAccount son componentes disponibles para la evolución de Lucy. En esta versión no sustituyen automáticamente las claves existentes, no sincronizan cuentas por sí solos y no disponen de una pantalla propia en el administrador.
 
@@ -17,8 +19,8 @@ La versión incluye identidades y vinculaciones, reglas de estados, adaptadores 
 | Perfil | Lectura recomendada | Responsabilidad |
 |---|---|---|
 | Operadores y secretarías | Capítulos 1, 2, 3 y protocolo inicial del 5 | Registrar datos y comunicar incidencias sin duplicar inscripciones |
-| Autoridades | Capítulos 1 y 3; estados del capítulo 2 | Interpretar avances, límites y decisiones institucionales |
-| Administración técnica / TI | Manual completo, especialmente 4 y 5 | Configurar servicios, permisos, integraciones y recuperación |
+| Autoridades | Capítulos 1 y 3; estados del capítulo 2 y criterios del 6 | Interpretar avances, límites y decisiones institucionales |
+| Administración técnica / TI | Manual completo, especialmente 4, 5 y 6 | Configurar servicios, permisos, integraciones y recuperación |
 
 Los perfiles de esta tabla expresan responsabilidades de trabajo; no constituyen grupos de permisos preconfigurados.
 
@@ -29,6 +31,7 @@ Los perfiles de esta tabla expresan responsabilidades de trabajo; no constituyen
 3. [Ciclo de vida y estados](03_ciclo_de_vida_y_estados.md).
 4. [Puesta en marcha y operación técnica](04_puesta_en_marcha_y_operacion.md).
 5. [Contingencias y preguntas frecuentes](05_contingencias_y_faq.md).
+6. [Incorporación de nuevas plataformas e identidades](06_incorporacion_nuevas_plataformas_e_identidades.md).
 
 ## Documentación de respaldo
 

@@ -35,7 +35,7 @@ class TransitionError(Exception):
     #FSRV00-1000: Error de negocio de transición.
 
 
-def _emit_outbox_event(affiliation, status):
+def _emit_outbox_event(affiliation, status, *, commission=""):
     """Persist an intent and schedule dispatch after the producer commits.
 
     The payload captures only execution inputs; current cross-affiliation
@@ -69,6 +69,9 @@ def _emit_outbox_event(affiliation, status):
             else ""
         ),
         "group_name": "",
+        "profile_type_code": affiliation.profile_type.code,
+        "career_code": affiliation.reference,
+        "commission": commission,
         "modality": affiliation.modality,
         "provisioning_status": status.code,
         "requires_m365_license": status.requires_m365_license,
@@ -235,6 +238,7 @@ def create_affiliation(
     user=None,
     reason="",
     initial_status_code: str | None = None,
+    commission: str = "",
     **fields,
 ):
     """Crea una afiliación en su estado inicial y registra el hecho de alta.
@@ -277,7 +281,7 @@ def create_affiliation(
         changed_by_user=user,
         reason=reason or "Alta",
     )
-    _emit_outbox_event(affiliation, status)
+    _emit_outbox_event(affiliation, status, commission=commission)
     return affiliation
 
 

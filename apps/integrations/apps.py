@@ -4,7 +4,7 @@ from django.apps import AppConfig
 
 
 class IntegrationsConfig(AppConfig):
-    """Registra el paquete sin cargar modelos ni iniciar conexiones externas."""
+    """Registra clientes y configuración local sin iniciar conexiones externas."""
 
     default_auto_field = "django.db.models.BigAutoField"
     name = "apps.integrations"

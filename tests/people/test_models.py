@@ -1,5 +1,6 @@
 """Persistencia e integridad de cuentas digitales por plataforma."""
 
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.test import TestCase
 
@@ -40,12 +41,17 @@ class CollaborationStatusTests(TestCase):
         self.assertEqual(status.target_platform, "MOODLE")
         self.assertTrue(status.requires_collaboration_account)
         self.assertFalse(status.requires_collaboration_license)
-        status.target_platform = "EVELIA"
+        for retired_platform in ("EVELIA", "CANVAS"):
+            with self.subTest(platform=retired_platform):
+                status.target_platform = retired_platform
+                with self.assertRaises(ValidationError):
+                    status.full_clean()
+        status.target_platform = "OTRO"
         status.requires_collaboration_account = False
         status.full_clean()
         status.save()
         status.refresh_from_db()
-        self.assertEqual(status.target_platform, "EVELIA")
+        self.assertEqual(status.target_platform, "OTRO")
         self.assertFalse(status.requires_collaboration_account)
 
 
