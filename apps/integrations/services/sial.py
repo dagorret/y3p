@@ -78,6 +78,7 @@ que aparece al convertir padrones de planillas.
         if not campaign_id:
             #FSIAL03-3003: Campaña vacía no identifica un padrón consultable.
             raise ValueError("campaign_id no puede estar vacío.")
+        self._validate_configuration()
         result = {}
         #FSIAL04-3004: Las listas se consultan sucesivamente para preservar el contrato.
         for list_name in ("preinscriptos", "aspirantes", "ingresantes"):
@@ -116,6 +117,7 @@ que aparece al convertir padrones de planillas.
             )
         try:
             self._raise_for_status(response, resource=f"dni={dni}")
+        #FINTEGRATIONSSERVICESSIAL004-8004: Trata el fallo en este límite y conserva la política de respuesta o recuperación.
         except ResourceNotFoundError:
             #FSIAL07-3007: Un 404 explícito significa que el padrón no contiene el DNI.
             return None
@@ -147,6 +149,7 @@ que aparece al convertir padrones de planillas.
 
         try:
             return response.json()
+        #FINTEGRATIONSSERVICESSIAL008-8008: Trata el fallo en este límite y conserva la política de respuesta o recuperación.
         except ValueError as error:
             #FSIAL10-3010: Los padrones deben estar serializados como JSON.
             raise IntegrationError("SIAL devolvió una respuesta JSON inválida.") from error
@@ -188,6 +191,7 @@ que aparece al convertir padrones de planillas.
             career_code=str(row["career_code"]),
             modality=str(row["modality"]),
             condition=str(row.get("condition") or condition),
+            commission=str(row.get('commission') or '').strip(),
         )
 
     def _validate_dni(self, dni):

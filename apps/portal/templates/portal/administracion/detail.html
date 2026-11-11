@@ -1,0 +1,78 @@
+<section id="identity-card" class="mt-6 space-y-6">
+  <style>
+    #identity-card input:not([type=hidden]), #identity-card select, #identity-card textarea { border: 1px solid #cbd5e1; border-radius: .5rem; padding: .5rem; max-width: 100%; background: white; }
+    #identity-card form p { margin: .75rem 0; }
+    #identity-card form label { display: block; font-weight: 600; }
+    #identity-card .errorlist { color: #991b1b; }
+  </style>
+  <header><p class="text-sm font-semibold text-blue-700">FICHA MAESTRA 360°</p>
+    <h1 class="text-3xl font-bold">{{ identity }}</h1>
+    <p>{{ identity.identifier }} · {{ identity.institutional_upn|default:"UPN pendiente" }}</p>
+  </header>
+  {% if message %}<div role="status" aria-live="polite" class="rounded-xl p-4 {% if error %}bg-red-100 text-red-900{% else %}bg-emerald-100 text-emerald-900{% endif %}">{{ message }}</div>{% endif %}
+  <div class="grid gap-6 lg:grid-cols-2">
+    <section class="rounded-xl bg-white p-6 shadow-sm">
+      <h2 class="text-xl font-bold">Datos filiatorios y contacto</h2>
+      {% if can_operate_daily %}
+      <form method="post" hx-post="{% url 'portal:identity_contact' identity.pk %}" hx-target="#identity-card" hx-swap="outerHTML" class="space-y-3">
+        {% csrf_token %}{{ contact_form.as_p }}<button class="rounded bg-blue-700 px-4 py-2 text-white">Guardar contacto</button>
+      </form>
+      {% else %}
+      <dl class="my-3 space-y-2">
+        <div><dt class="font-semibold">Correo personal</dt><dd>{{ identity.personal_profile.personal_email|default:"Sin registrar" }}</dd></div>
+        <div><dt class="font-semibold">Teléfono</dt><dd>{{ identity.personal_profile.phone|default:"Sin registrar" }}</dd></div>
+        <div><dt class="font-semibold">Ciudad</dt><dd>{{ identity.personal_profile.city|default:"Sin registrar" }}</dd></div>
+        <div><dt class="font-semibold">Domicilio</dt><dd>{{ identity.personal_profile.address|default:"Sin registrar" }}</dd></div>
+        <div><dt class="font-semibold">Nacimiento</dt><dd>{{ identity.personal_profile.birth_date|default:"Sin registrar" }}</dd></div>
+      </dl>{% endif %}
+    </section>
+    <section class="rounded-xl bg-white p-6 shadow-sm">
+      <h2 class="text-xl font-bold">Metadatos extensibles</h2>
+      <pre class="overflow-auto rounded bg-slate-100 p-3">{{ metadata_json }}</pre>
+      {% if can_operate_daily %}
+      <form method="post" hx-post="{% url 'portal:identity_metadata' identity.pk %}" hx-target="#identity-card" hx-swap="outerHTML">
+        {% csrf_token %}{{ metadata_form.as_p }}<button class="rounded bg-blue-700 px-4 py-2 text-white">Aplicar cambio</button>
+      </form>{% endif %}
+    </section>
+  </div>
+  <section class="rounded-xl bg-white p-6 shadow-sm">
+    <h2 class="text-xl font-bold">Identidad digital y soporte</h2>
+    <p class="my-2 text-sm text-slate-600">Revocar sesiones no elimina los métodos MFA. Una operación simulada se informa como SIMULACIÓN.</p>
+    <ul class="my-3">{% for account in digital_accounts %}<li>{{ account.get_platform_display }} · {{ account.account_identifier }} · {{ account.is_active|yesno:"Activa,Inactiva" }}</li>{% empty %}<li>No hay cuentas digitales registradas.</li>{% endfor %}</ul>
+    {% if can_operate_daily %}<div class="flex flex-wrap gap-3">
+      <form method="post" hx-post="{% url 'portal:identity_credentials' identity.pk %}" hx-target="#identity-card" hx-swap="outerHTML" hx-confirm="Se regenerará la contraseña y se enviará al correo personal. ¿Continuar?">{% csrf_token %}<button class="rounded bg-blue-700 px-4 py-2 text-white">Reenviar Clave Temporal</button></form>
+      <form method="post" hx-post="{% url 'portal:identity_sessions' identity.pk %}" hx-target="#identity-card" hx-swap="outerHTML" hx-confirm="¿Revocar las sesiones de esta identidad?">{% csrf_token %}<button class="rounded border px-4 py-2">Revocar Sesiones / MFA</button></form>
+      {% if can_administer_critical %}<form method="post" hx-post="{% url 'portal:identity_license' identity.pk %}" hx-target="#identity-card" hx-swap="outerHTML" hx-confirm="¿Conmutar el SKU A1 según el estado actual en Graph?">{% csrf_token %}<button class="rounded border px-4 py-2">Conmutar Licencia A1</button></form>
+      <form method="post" hx-post="{% url 'portal:identity_suspend' identity.pk %}" hx-target="#identity-card" hx-swap="outerHTML" hx-confirm="¿Suspender Graph y desactivar las vinculaciones no terminales?">{% csrf_token %}<button class="rounded border border-red-700 px-4 py-2 text-red-700">Suspender identidad</button></form>{% endif %}
+    </div>{% endif %}
+  </section>
+  <section class="rounded-xl bg-white p-6 shadow-sm">
+    <h2 class="text-xl font-bold">Sagas, vinculaciones e historial</h2>
+    {% for affiliation in affiliations %}<article class="my-5 rounded-lg border p-4">
+      <h3 class="font-bold">{{ affiliation.profile_type.name }} · {{ affiliation.reference }}</h3>
+      <p>{{ affiliation.current_status.name }} · {{ affiliation.is_active|yesno:"Activa,Inactiva" }} · Vence: {{ affiliation.expires_at|default:"Sin vencimiento" }}</p>
+      {% if can_administer_critical and affiliation.is_active %}
+      <details class="my-3"><summary class="cursor-pointer font-semibold">Forzar transición válida / ajustar TTL</summary>
+        <p class="text-sm">La intervención manual respeta las reglas del grafo y exige un motivo.</p>
+        <form method="post" hx-post="{% url 'portal:affiliation_transition' identity.pk affiliation.pk %}" hx-target="#identity-card" hx-swap="outerHTML" class="my-3">{% csrf_token %}{{ affiliation.transition_form.as_p }}<button class="rounded bg-blue-700 px-4 py-2 text-white">Ejecutar transición</button></form>
+        <form method="post" hx-post="{% url 'portal:affiliation_ttl' identity.pk affiliation.pk %}" hx-target="#identity-card" hx-swap="outerHTML">{% csrf_token %}{{ affiliation.ttl_form.as_p }}<button class="rounded border px-4 py-2">Actualizar vencimiento</button></form>
+      </details>{% endif %}
+      <details><summary class="cursor-pointer">Historial inmutable (últimos 20 registros)</summary>
+        <ul>{% for event in affiliation.events %}<li class="my-2 text-sm">{{ event.occurred_at }} · {{ event.from_status.code|default:"ALTA" }} → {{ event.to_status.code }} · {{ event.changed_by }} · {{ event.reason }}</li>{% empty %}<li>Sin antecedentes.</li>{% endfor %}</ul>
+      </details>
+    </article>{% empty %}<p>Sin vinculaciones.</p>{% endfor %}
+  </section>
+  {% if can_operate_daily %}<section class="rounded-xl bg-white p-6 shadow-sm">
+    <h2 class="text-xl font-bold">Moodle Express</h2>
+    <p class="text-sm text-slate-600">Indique el shortname exacto. Los roles son Estudiante (5) y Docente (3); deben coincidir con la configuración de Moodle.</p>
+    <form method="post" hx-post="{% url 'portal:identity_moodle_enrol' identity.pk %}" hx-target="#identity-card" hx-swap="outerHTML" class="my-3">{% csrf_token %}{{ moodle_form.as_p }}<button class="rounded bg-blue-700 px-4 py-2 text-white">Inscribir y asignar comisión</button></form>
+    <form method="post" hx-post="{% url 'portal:identity_moodle_unenrol' identity.pk %}" hx-target="#identity-card" hx-swap="outerHTML" hx-confirm="¿Desmatricular de este curso y rol?">{% csrf_token %}
+      <label>Shortname <input name="shortname" required maxlength="100"></label>
+      <label>Rol <select name="role_id"><option value="5">Estudiante</option><option value="3">Docente</option></select></label>
+      <button class="rounded border border-red-700 px-4 py-2 text-red-700">Desmatricular del curso</button>
+    </form>
+  </section>{% endif %}
+  <section class="rounded-xl bg-white p-6 shadow-sm"><h2 class="text-xl font-bold">Bitácora de soporte (últimos 20 registros)</h2>
+    {% for entry in support_log %}<p class="my-2 break-words text-sm">{{ entry.action_time }} · {{ entry.user }} · {{ entry.change_message }}</p>{% empty %}<p>Sin intervenciones administrativas.</p>{% endfor %}
+  </section>
+</section>

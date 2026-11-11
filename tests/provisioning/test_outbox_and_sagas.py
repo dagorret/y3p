@@ -1,4 +1,4 @@
-"""Concurrency and saga regression tests using database rows and provider doubles."""
+"""Regresiones de concurrencia y orquestación con filas reales y proveedores sustitutos."""
 
 from datetime import timedelta
 from types import SimpleNamespace
@@ -40,15 +40,15 @@ from apps.provisioning.tasks import moodle_step as moodle_celery_task
 
 
 class OutboxAndSagaTests(TransactionTestCase):
-    """Verify transactional emission, FIFO claims, continuation and checkpoints."""
+    """Verifica emisión atómica, reclamación ordenada, continuaciones y puntos de control."""
 
     reset_sequences = True
 
     def setUp(self):
-        """Ensure minimal seeded graph survives TransactionTestCase flush cycles."""
+        """Restituye el grafo mínimo después de la limpieza de cada prueba transaccional."""
 
-        # Existing saga regressions use a synthetic admission career/course.
-        # reset_sequences can restart IDs while migration seed rows still exist.
+        # Las regresiones de orquestación usan una carrera y un curso sintéticos.
+        # reset_sequences puede reiniciar identificadores mientras aún existen filas semilla.
         AdmissionCourseRule.objects.all().delete()
         AdmissionCourseRule.objects.get_or_create(
             career_code='9040', defaults={'target_courses': '9040'},
@@ -109,7 +109,7 @@ class OutboxAndSagaTests(TransactionTestCase):
         self.identity = self._identity()
 
     def _identity(self):
-        """Create a unique person and personal contact for outbox payload tests."""
+        """Crea una persona y un contacto únicos para probar los datos del Outbox."""
 
         token = uuid4().hex[:10]
         identity = Identity.objects.create(
@@ -126,7 +126,7 @@ class OutboxAndSagaTests(TransactionTestCase):
 
     def _event(self, *, identity=None, action="PROVISION", course="9040", required=False,
                event_status=OutboxEvent.Status.PENDING):
-        """Create a minimal durable event and its real affiliation references."""
+        """Crea un evento persistente mínimo y sus referencias reales de vinculación."""
 
         identity = identity or self.identity
         status = self.statuses["INGRE"]
@@ -156,7 +156,7 @@ class OutboxAndSagaTests(TransactionTestCase):
         )
 
     def test_action_is_emitted_with_create_and_transition_and_rollback_is_atomic(self):
-        """Outbox follows status action and disappears with a rolled-back producer unit."""
+        """La emisión acompaña al alta y la transición y se revierte con la transacción productora."""
 
         pre = SagaStatusDefinition.objects.get(profile_type=self.profile, code="PRE")
         pre.provisioning_action = "PROVISION"
@@ -182,13 +182,14 @@ class OutboxAndSagaTests(TransactionTestCase):
                     affiliation.pk, "INGRE", changed_by="test", expected_from_code="ASP"
                 )
                 self.assertEqual(OutboxEvent.objects.filter(identity=self.identity).count(), 2)
+                #FTESTSPROVISIONINGTESTOUTBOXANDSAGAS001-8001: Origina RuntimeError; el llamador conserva la causa y decide su tratamiento.
                 raise RuntimeError("force producer rollback")
         self.assertEqual(OutboxEvent.objects.filter(identity=self.identity).count(), 1)
         affiliation.refresh_from_db()
         self.assertEqual(affiliation.current_status.code, "PRE")
 
     def test_non_action_state_does_not_emit_and_seed_configures_fce_actions(self):
-        """PRE and ASP stay local while INGRE, ALUMNO and PROFESOR:SI provision."""
+        """PRE y ASP son locales; INGRE, ALUMNO y PROFESOR:SI solicitan aprovisionamiento."""
 
         rows = {row.code: row for row in SagaStatusDefinition.objects.filter(
             profile_type__code="ALUMNO", code__in=["PRE", "ASP", "INGRE", "ALUMNO", "GRADUADO"]
@@ -201,7 +202,7 @@ class OutboxAndSagaTests(TransactionTestCase):
         self.assertEqual(OutboxEvent.objects.count(), 0)
 
     def test_claim_commits_without_retaining_row_lock(self):
-        """Claim timestamps survive and an independent connection can update the row."""
+        """La reclamación persiste y otra conexión puede actualizar la fila después de liberarse el bloqueo."""
 
         event = self._event()
         self.assertEqual(event.status, OutboxEvent.Status.PENDING)
@@ -230,7 +231,7 @@ class OutboxAndSagaTests(TransactionTestCase):
         self.assertEqual(event.last_error, "independent connection write")
 
     def test_fifo_blocking_failed_blocking_and_parallel_identities(self):
-        """Later events wait for earlier nonterminal rows, while different people proceed."""
+        """Cada evento espera al anterior no resuelto de su identidad; otras personas continúan."""
 
         first = self._event()
         second = self._event()
@@ -246,7 +247,7 @@ class OutboxAndSagaTests(TransactionTestCase):
 
     @override_settings(LUCY_M365_SKU_ID="test-sku")
     def test_checkpoint_and_moodle_continuation_do_not_repeat_graph(self):
-        """Graph/license checkpoints persist across the asynchronous Moodle boundary."""
+        """Los pasos de Graph y licencia sobreviven a la continuación asíncrona Moodle."""
 
         event = self._event(required=True)
         OutboxEvent.objects.filter(pk=event.pk).update(status=OutboxEvent.Status.PROCESSING)
@@ -285,7 +286,7 @@ class OutboxAndSagaTests(TransactionTestCase):
         graph.set_temporary_password.assert_called_once()
 
     def test_preexisting_graph_account_skips_password_rotation(self):
-        """Existing-account checkpoint must never invoke password or credential mail."""
+        """Una cuenta Graph preexistente no cambia su clave ni recibe credenciales nuevas."""
 
         event = self._event(course="")
         event.status = OutboxEvent.Status.PROCESSING
@@ -304,7 +305,7 @@ class OutboxAndSagaTests(TransactionTestCase):
         self.assertEqual(event.step_results["password_and_mail"]["status"], "SKIPPED_EXISTING_USER")
 
     def test_smtp_retry_rotates_password_and_never_persists_it(self):
-        """A transient mail error retries the combined step with a different ephemeral key."""
+        """Un fallo transitorio SMTP reintenta la etapa con un secreto efímero diferente."""
 
         event = self._event(course="")
         event.status = OutboxEvent.Status.PROCESSING
@@ -337,7 +338,7 @@ class OutboxAndSagaTests(TransactionTestCase):
         self.assertNotIn(second_password, str(event.step_results) + event.last_error)
 
     def test_shared_license_is_not_removed_while_other_affiliation_requires_it(self):
-        """A live license-required affiliation protects the identity-level SKU."""
+        """Una vinculación activa que exige licencia protege el SKU compartido de la identidad."""
 
         event = self._event(action="SUSPEND")
         event.status = OutboxEvent.Status.PROCESSING
@@ -361,7 +362,7 @@ class OutboxAndSagaTests(TransactionTestCase):
         self.assertEqual(event.step_results["graph_disable"]["status"], "SKIPPED_STILL_ACTIVE")
 
     def test_rate_limit_does_not_increment_attempt_but_unavailable_does(self):
-        """Typed rate limits honor Retry-After; transient failures consume attempts."""
+        """Los límites respetan Retry-After; los fallos transitorios consumen intentos."""
 
         event = self._event()
         event.status = OutboxEvent.Status.PROCESSING
@@ -382,7 +383,7 @@ class OutboxAndSagaTests(TransactionTestCase):
         self.assertEqual(record_failure(event.pk, AuthenticationError("unauthorized")), OutboxEvent.Status.FAILED)
 
     def test_sweeper_rescues_stale_heartbeat_and_increments_attempt(self):
-        """A stale processing event gets one bounded retry attempt."""
+        """Un evento sin actividad se recupera mediante un reintento acotado."""
 
         event = self._event()
         old = timezone.now() - timedelta(minutes=6)
@@ -396,7 +397,7 @@ class OutboxAndSagaTests(TransactionTestCase):
         self.assertEqual(event.attempts, 1)
 
     def test_sweeper_recovers_waiting_subtask_and_marks_exhausted_event_failed(self):
-        """Lost Moodle work uses the two-hour threshold and bounded attempt policy."""
+        """Una continuación perdida supera el umbral de dos horas y respeta el máximo de intentos."""
 
         event = self._event()
         stale = timezone.now() - timedelta(hours=3)
@@ -412,7 +413,7 @@ class OutboxAndSagaTests(TransactionTestCase):
         self.assertEqual(event.attempts, 1)
 
     def test_unexpected_failure_is_retried_and_moodle_task_rate_is_configured(self):
-        """Unexpected worker exceptions cannot strand PROCESSING and Moodle is rate-limited."""
+        """Un error inesperado no abandona PROCESSING y la tarea Moodle conserva su límite."""
 
         event = self._event()
         OutboxEvent.objects.filter(pk=event.pk).update(status=OutboxEvent.Status.PROCESSING)
@@ -422,7 +423,7 @@ class OutboxAndSagaTests(TransactionTestCase):
         self.assertEqual(moodle_celery_task.rate_limit, "150/m")
 
     def test_rearm_simulated_events_supports_dry_run_and_commit_dispatch(self):
-        """The command reports without writing in dry-run and resets checkpoints atomically."""
+        """El comando consulta sin escribir en simulación y limpia resultados al rearmar."""
 
         event = self._event()
         OutboxEvent.objects.filter(pk=event.pk).update(
@@ -446,7 +447,7 @@ class OutboxAndSagaTests(TransactionTestCase):
 
     @override_settings(LUCY_DRY_RUN=True, LUCY_M365_SKU_ID="test-sku")
     def test_dry_run_finishes_simulated_with_simulated_checkpoints(self):
-        """Simulation traverses each adapter stage but never consumes the event as success."""
+        """La simulación atraviesa los adaptadores sin registrar una ejecución real exitosa."""
 
         event = self._event(required=True)
         OutboxEvent.objects.filter(pk=event.pk).update(status=OutboxEvent.Status.PROCESSING)

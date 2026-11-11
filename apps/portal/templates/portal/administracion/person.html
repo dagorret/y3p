@@ -1,0 +1,6 @@
+{% extends "portal/administracion/base_administracion.html" %}
+{% block title %}Ficha 360° · {{ identity }}{% endblock %}
+{% block admin_content %}
+<a href="{% url 'portal:administracion' %}" class="text-blue-700 underline">Volver a la búsqueda</a>
+{% include "portal/administracion/detail.html" %}
+{% endblock %}

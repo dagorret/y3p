@@ -25,7 +25,7 @@ from apps.integrations.exceptions import (
 class BaseIntegrationClient:
     """Base sin ORM para clientes HTTP externos.
 
-    Args:
+    Parámetros:
         dry_run: Intercepta operaciones de escritura antes de cualquier red.
         timeout: Timeout estricto aplicado a cada llamada HTTP.
         logger: Logger inyectable para pruebas; por defecto se crea por cliente.
@@ -78,16 +78,19 @@ class BaseIntegrationClient:
         try:
             #FINTBASE02-0002: Toda llamada de red usa este perímetro de traducción.
             yield
+        #FINTEGRATIONSSERVICESBASE002-8002: Trata el fallo en este límite y conserva la política de respuesta o recuperación.
         except requests.Timeout as error:
             #FINTBASE03-0003: Timeout remoto se expone como indisponibilidad tipada.
             raise RemoteServiceUnavailableError(
                 f"Timeout al contactar {self.service_name}."
             ) from error
+        #FINTEGRATIONSSERVICESBASE004-8004: Trata el fallo en este límite y conserva la política de respuesta o recuperación.
         except requests.ConnectionError as error:
             #FINTBASE04-0004: No se filtra RequestException cruda al dominio.
             raise RemoteServiceUnavailableError(
                 f"No se pudo establecer conexión con {self.service_name}."
             ) from error
+        #FINTEGRATIONSSERVICESBASE006-8006: Trata el fallo en este límite y conserva la política de respuesta o recuperación.
         except requests.RequestException as error:
             #FINTBASE05-0005: Fallos restantes de transporte quedan tipados.
             raise IntegrationError(
@@ -140,14 +143,14 @@ class BaseIntegrationClient:
     def _raise_for_status(self, response, *, resource=None):
         """Traduce un estado HTTP no exitoso a una excepción específica.
 
-        Args:
+        Parámetros:
             response: Objeto response compatible con ``requests.Response``.
             resource: Identificador lógico para mensajes y conflictos.
 
-        Returns:
+        Retorna:
             ``None`` para estados HTTP 2xx.
 
-        Raises:
+        Excepciones:
             AuthenticationError: Para 401.
             OperationForbiddenError: Para 403.
             ResourceNotFoundError: Para 404.
@@ -182,6 +185,7 @@ class BaseIntegrationClient:
         if status == 429:
             #FINTBASE15-0015: Lee Retry-After sin inferirlo del mensaje remoto.
             retry_after = self._retry_after(response)
+            #FINTEGRATIONSSERVICESBASE012-8012: Origina RateLimitExceededError; el llamador conserva la causa y decide su tratamiento.
             raise RateLimitExceededError(
                 f"Límite de solicitudes excedido en {self.service_name}.",
                 retry_after=retry_after,
@@ -202,6 +206,7 @@ class BaseIntegrationClient:
 
         try:
             body = response.json()
+        #FINTEGRATIONSSERVICESBASE016-8016: Trata el fallo en este límite y conserva la política de respuesta o recuperación.
         except (ValueError, AttributeError):
             #FINTBASE19-0019: El cuerpo no JSON no altera el tipo del error HTTP.
             return {}
@@ -216,6 +221,7 @@ class BaseIntegrationClient:
             return None
         try:
             return max(0.0, float(value))
+        #FINTEGRATIONSSERVICESBASE017-8017: Trata el fallo en este límite y conserva la política de respuesta o recuperación.
         except (TypeError, ValueError):
             #FINTBASE21-0021: No interpreta formatos HTTP-date como segundos.
             return None

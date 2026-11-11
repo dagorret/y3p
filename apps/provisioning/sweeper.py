@@ -1,4 +1,4 @@
-"""Recovery of provisioning events abandoned by a dead worker or broker loss."""
+"""Recuperación de eventos abandonados por un trabajador o por una publicación perdida."""
 
 from datetime import timedelta
 
@@ -11,11 +11,12 @@ from .dispatcher import _backoff
 
 def sweep_stuck_events(*, now=None, processing_timeout=timedelta(minutes=5),
                        waiting_timeout=timedelta(hours=2)):
-    """Requeue stale PROCESSING and WAITING_SUBTASK events in bounded writes.
+    """Reprograma trabajos PROCESSING y WAITING_SUBTASK sin actividad reciente.
 
-    Each row is locked and revalidated inside its own short transaction. A
-    worker death counts as an attempt; exhausted rows become FAILED and block
-    later events for that identity until an operator intervenes.
+    Cada fila se bloquea y revalida en una transacción breve. La muerte de un
+    trabajador consume un intento; al agotarlos, el evento queda FAILED y
+    conserva el bloqueo lógico de las siguientes órdenes de esa identidad
+    hasta una intervención operativa. El barrido no conserva bloqueos de red.
     """
 
     now = now or timezone.now()
@@ -41,7 +42,7 @@ def sweep_stuck_events(*, now=None, processing_timeout=timedelta(minutes=5),
                 .first()
             )
             if event is None:
-                #FCMD10-3010: A concurrent worker owns this row; the sweeper skips it without blocking.
+                #FCMD10-3010: Omite filas bloqueadas por otro trabajador para no detener el barrido.
                 continue
             threshold = (
                 processing_cutoff
@@ -52,14 +53,14 @@ def sweep_stuck_events(*, now=None, processing_timeout=timedelta(minutes=5),
                 OutboxEvent.Status.PROCESSING,
                 OutboxEvent.Status.WAITING_SUBTASK,
             } or event.heartbeat_at is None or event.heartbeat_at >= threshold:
-                #FCMD11-3011: Revalidation avoids resetting a row refreshed after the candidate scan.
+                #FCMD11-3011: Revalida la actividad para no reiniciar una fila actualizada desde la selección inicial.
                 continue
             event.attempts += 1
             event.locked_at = None
             event.heartbeat_at = now
             event.last_error = "Worker heartbeat expired; event recovered by sweeper."
             if event.attempts >= event.max_attempts:
-                #FCMD12-3012: A repeatedly crashing task becomes visible as terminal failure.
+                #FCMD12-3012: Agotar intentos transforma las caídas repetidas en un fallo final visible.
                 event.status = OutboxEvent.Status.FAILED
                 event.processed_at = now
                 event.retry_after = None

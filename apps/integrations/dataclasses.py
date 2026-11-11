@@ -5,6 +5,38 @@ from typing import Any
 
 
 @dataclass(frozen=True)
+class ExternalActionResult:
+    """Resultado inmutable sin credenciales ni respuestas remotas arbitrarias."""
+
+    action: str
+    success: bool = True
+    simulated: bool = False
+    resource_id: str | None = None
+    detail: str = ""
+    accepted: bool = False
+    affected_count: int = 0
+
+
+@dataclass(frozen=True)
+class TeamMemberResult:
+    id: str
+    user_id: str
+    upn: str
+    display_name: str
+    is_owner: bool = False
+
+
+@dataclass(frozen=True)
+class CourseParticipant:
+    id: int
+    username: str
+    first_name: str
+    last_name: str
+    role_ids: tuple[int, ...] = ()
+    groups: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class GraphUserResult:
     """Resultado de lectura o creación de usuario Microsoft Graph."""
 
@@ -28,7 +60,7 @@ class LicenseResult:
 
 @dataclass(frozen=True)
 class GraphAccountResult:
-    """Confirmed enabled state for an Entra user, with simulation marker."""
+    """Estado de habilitación confirmado de un usuario Entra, con indicador de simulación."""
 
     user_identifier: str
     enabled: bool
@@ -37,7 +69,7 @@ class GraphAccountResult:
 
 @dataclass(frozen=True)
 class PasswordSetResult:
-    """Confirms a temporary password mutation without retaining the secret."""
+    """Confirma el cambio de una contraseña temporal sin conservar el secreto."""
 
     user_identifier: str
     simulated: bool = False
@@ -88,6 +120,7 @@ class SialStudentDTO:
     career_code: str
     modality: str
     condition: str
+    commission: str = ''
 
 
 @dataclass(frozen=True)

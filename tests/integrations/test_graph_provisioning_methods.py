@@ -1,4 +1,4 @@
-"""Tests the Graph account-disable write and secret-free credential DTO contract."""
+"""Pruebas de deshabilitación Graph y resultados de credenciales sin secretos."""
 
 import unittest
 from unittest.mock import Mock
@@ -7,10 +7,10 @@ from apps.integrations.services.graph import MicrosoftGraphClient
 
 
 class GraphProvisioningMethodTests(unittest.TestCase):
-    """Exercise Graph provisioning writes without external network access."""
+    """Ejercita escrituras de aprovisionamiento Graph sin red externa."""
 
     def test_disable_user_uses_patch_payload_through_write_boundary(self):
-        """The disable intent maps exactly to accountEnabled false via PATCH."""
+        """La intención de deshabilitar produce exactamente accountEnabled=False mediante PATCH."""
 
         response = Mock(status_code=204)
         session = Mock()

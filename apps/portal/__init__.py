@@ -1,1 +1,1 @@
-"""Public operational dashboards for academic registration areas."""
+"""Portales operativos para las áreas de inscripción académica."""

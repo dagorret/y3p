@@ -1,4 +1,4 @@
-"""Operational administration for durable provisioning events."""
+"""Administración operativa de órdenes persistentes de aprovisionamiento."""
 
 import json
 
@@ -6,6 +6,7 @@ from celery import current_app
 from django.contrib import admin, messages
 from django.db import transaction
 from django.utils.html import format_html
+from django.urls import reverse
 from unfold.admin import ModelAdmin
 from unfold.decorators import action, display
 
@@ -14,7 +15,7 @@ from apps.people.models import OutboxEvent
 
 @admin.register(OutboxEvent)
 class OutboxEventAdmin(ModelAdmin):
-    """Inspect and safely requeue durable outbox work."""
+    """Inspecciona y rearma trabajos persistentes con sus resultados por paso."""
 
     list_display = (
         "id", "public_id", "identity", "action", "status_badge",
@@ -27,7 +28,7 @@ class OutboxEventAdmin(ModelAdmin):
     readonly_fields = (
         "id", "public_id", "identity", "affiliation", "action", "created_at",
         "locked_at", "heartbeat_at", "processed_at", "display_payload",
-        "display_step_results", "last_error",
+        "display_step_results", "last_error", "identity360_link", "requested_by",
     )
     fields = readonly_fields + ("status", "attempts", "max_attempts", "retry_after")
     ordering = ("-id",)
@@ -37,6 +38,10 @@ class OutboxEventAdmin(ModelAdmin):
         return super().get_queryset(request).select_related(
             "identity", "affiliation", "affiliation__profile_type", "affiliation__current_status"
         )
+
+    @display(description='Ficha maestra de la identidad')
+    def identity360_link(self, obj):
+        return format_html('<a href="{}">Abrir Ficha 360°</a>', reverse('portal:identity360', args=[obj.identity_id]))
 
     @display(description="Estado", ordering="status", label={
         OutboxEvent.Status.SUCCEEDED: "success",

@@ -1,4 +1,4 @@
-"""Short-transaction claims for the people transactional outbox."""
+"""Reclamación transaccional breve de solicitudes del Outbox de personas."""
 
 import random
 from datetime import timedelta
@@ -12,12 +12,16 @@ from apps.people.models import OutboxEvent
 
 
 def claim_events(limit=100):
-    """Claim dispatchable events without holding locks during broker or API I/O.
+    """Reclama eventos elegibles sin mantener bloqueos durante operaciones de red.
 
-    The ``NOT EXISTS`` condition makes every earlier nonterminal event block
-    later rows for its identity. ``skip_locked`` permits concurrent dispatcher
-    workers to claim different identities. The atomic block commits PROCESSING
-    and timestamps before this function returns the IDs to its caller.
+    El patrón de reclamación usa NOT EXISTS para respetar el orden por
+    identidad y select_for_update(skip_locked=True) para que trabajadores
+    concurrentes tomen filas diferentes sin esperarse. La transacción confirma
+    PROCESSING y las marcas temporales antes de devolver los identificadores.
+
+    Esta separación reduce la contención, pero admite que un proceso muera
+    después de reclamar y antes de publicar: el barrido de actividad vencida
+    recupera esos eventos. No se presume una transacción distribuida con Celery.
     """
 
     now = timezone.now()
@@ -31,7 +35,7 @@ def claim_events(limit=100):
     )
     claimed_ids = []
     with transaction.atomic():
-        #FCMD01-3001: Claim eligibility is FIFO and only retry rows past due are ready.
+        #FCMD01-3001: Respeta el orden por identidad y solo toma reintentos cuyo plazo se cumplió.
         events = list(
             OutboxEvent.objects.filter(ready)
             .filter(~Exists(blockers))
@@ -39,7 +43,7 @@ def claim_events(limit=100):
             .select_for_update(skip_locked=True)[:limit]
         )
         for event in events:
-            #FCMD02-3002: Claim lock protects the state transition only until this transaction commits.
+            #FCMD02-3002: El bloqueo protege el cambio de estado hasta confirmar esta transacción breve.
             event.status = OutboxEvent.Status.PROCESSING
             event.locked_at = now
             event.heartbeat_at = now
@@ -53,38 +57,39 @@ def claim_events(limit=100):
 
 
 def dispatch_pending_events(limit=100):
-    """Claim a batch and publish saga task IDs after claim locks have committed.
+    """Reclama un lote y publica tareas después de liberar los bloqueos de la base.
 
-    Publishing happens outside the database transaction. If the broker is
-    unavailable, each affected event is moved back to retry state so the durable
-    database remains the source of truth rather than relying on Celery retries.
+    La publicación ocurre fuera de la transacción. Si falla el intermediario
+    de mensajes, cada evento vuelve a un estado de reintento persistente;
+    PostgreSQL sigue siendo la fuente de verdad, no la memoria del trabajador.
     """
 
     event_ids = claim_events(limit=limit)
     published = 0
     for event_id in event_ids:
         try:
-            #FCMD03-3003: Broker dispatch follows the committed short claim transaction.
+            #FCMD03-3003: La publicación sigue a la confirmación y liberación del bloqueo.
             current_app.send_task(
                 "provisioning.run_saga", args=[event_id], queue="provisioning"
             )
             published += 1
+        #FPROVISIONINGDISPATCHER001-8001: Trata el fallo en este límite y conserva la política de respuesta o recuperación.
         except Exception as error:
-            #FCMD04-3004: Broker failure releases the claim through durable retry metadata.
+            #FCMD04-3004: Un fallo del intermediario deja el reintento registrado en la base.
             _reschedule_after_publish_error(event_id, error)
     return {"claimed": len(event_ids), "published": published}
 
 
 def _reschedule_after_publish_error(event_id, error):
-    """Return an unpublished claim to retry or terminal failure atomically."""
+    """Reprograma atómicamente una reclamación que no pudo publicarse, o registra su fallo final."""
 
     now = timezone.now()
     with transaction.atomic():
         event = OutboxEvent.objects.select_for_update().get(pk=event_id)
         event.attempts += 1
-        event.last_error = f"{error.__class__.__name__}: Celery dispatch failed."
+        event.last_error = f"{error.__class__.__name__}: falló el despacho a Celery."
         if event.attempts >= event.max_attempts:
-            #FCMD05-3005: Exhausted broker failures stay visible and block FIFO for operator review.
+            #FCMD05-3005: Agotar intentos conserva un fallo visible que retiene las órdenes posteriores.
             event.status = OutboxEvent.Status.FAILED
             event.processed_at = now
             event.retry_after = None
@@ -98,6 +103,6 @@ def _reschedule_after_publish_error(event_id, error):
 
 
 def _backoff(attempts):
-    """Return capped exponential delay with jitter in seconds."""
+    """Calcula una espera exponencial acotada con dispersión aleatoria."""
 
     return min(2**attempts * 30, 3600) + random.randint(0, 30)

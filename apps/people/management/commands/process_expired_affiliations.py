@@ -103,6 +103,7 @@ class Command(BaseCommand):
                     #FCMD04-3004: El servicio abre transacción, bloquea y revalida el TTL.
                     if expire_affiliation(affiliation_id) is not None:
                         done += 1
+                #FPEOPLEMANAGEMENTCOMMANDSPROCESSEXPIREDAFFILIATIONS002-8002: Trata el fallo en este límite y conserva la política de respuesta o recuperación.
                 except TransitionError as error:
                     #FCMD11-3011: Aísla errores de dominio por afiliación y continúa el lote.
                     failed.add(affiliation_id)

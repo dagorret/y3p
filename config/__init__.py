@@ -1,4 +1,4 @@
-"""Y3P Django project package and Celery application export."""
+"""Paquete del proyecto Django Y3P y exportación de la aplicación Celery."""
 
 from .celery import app as celery_app
 

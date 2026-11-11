@@ -19,6 +19,7 @@ def calculate_content_hash(data: dict) -> str:
     """
 
     if not isinstance(data, dict):
+        #FPEOPLEIDENTIFIERS001-8001: Origina TypeError; el llamador conserva la causa y decide su tratamiento.
         raise TypeError("data debe ser un diccionario.")
 
     def sanitize(value):
@@ -38,8 +39,10 @@ def _validate_integer(value: int, name: str, maximum: int) -> None:
     """Rechaza tipos no enteros y valores que desbordarían su campo."""
 
     if isinstance(value, bool) or not isinstance(value, int):
+        #FPEOPLEIDENTIFIERS002-8002: Origina TypeError; el llamador conserva la causa y decide su tratamiento.
         raise TypeError(f"{name} debe ser un entero.")
     if not 0 <= value <= maximum:
+        #FPEOPLEIDENTIFIERS003-8003: Origina ValueError; el llamador conserva la causa y decide su tratamiento.
         raise ValueError(f"{name} debe estar entre 0 y {maximum}.")
 
 
@@ -55,9 +58,11 @@ def generate_institutional_uuid(
     """
 
     if isinstance(dni, bool) or not isinstance(dni, (str, int)):
+        #FPEOPLEIDENTIFIERS004-8004: Origina TypeError; el llamador conserva la causa y decide su tratamiento.
         raise TypeError("dni debe ser una cadena decimal o un entero.")
     decimal_dni = str(dni).strip()
     if re.fullmatch(r"[0-9]+", decimal_dni) is None:
+        #FPEOPLEIDENTIFIERS005-8005: Origina ValueError; el llamador conserva la causa y decide su tratamiento.
         raise ValueError("dni debe contener únicamente dígitos decimales.")
     dni_number = int(decimal_dni)
     _validate_integer(dni_number, "dni", (1 << 48) - 1)
@@ -75,6 +80,7 @@ def decode_institutional_uuid(u: uuid.UUID) -> dict:
     """Decodifica únicamente UUIDs que respetan el layout canónico completo."""
 
     if not isinstance(u, uuid.UUID):
+        #FPEOPLEIDENTIFIERS006-8006: Origina TypeError; el llamador conserva la causa y decide su tratamiento.
         raise TypeError("u debe ser un uuid.UUID.")
     if (
         u.time_low != 0xFCE00000
@@ -83,6 +89,7 @@ def decode_institutional_uuid(u: uuid.UUID) -> dict:
         or u.variant != uuid.RFC_4122
         or u.clock_seq_hi_variant != 0x90
     ):
+        #FPEOPLEIDENTIFIERS007-8007: Origina ValueError; el llamador conserva la causa y decide su tratamiento.
         raise ValueError("El UUID no cumple el formato institucional canónico.")
 
     return {

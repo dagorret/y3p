@@ -169,6 +169,7 @@ class MassIngresoSimulationTests(TransactionTestCase):
         def fail_after_event(*args, **kwargs):
             affiliation = create_affiliation(*args, **kwargs)
             self.assertEqual(affiliation.outbox_events.count(), 1)
+            #FTESTSPROVISIONINGTESTMASSINGRESOSIMULATION001-8001: Origina ValidationError; el llamador conserva la causa y decide su tratamiento.
             raise ValidationError('Fallo posterior a la emisión del evento')
 
         with patch('apps.platform_mocks.services.create_affiliation', side_effect=fail_after_event):

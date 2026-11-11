@@ -1,1 +1,1 @@
-"""Asynchronous orchestration of durable people outbox events."""
+"""Orquestación asíncrona de eventos persistentes del dominio de personas."""

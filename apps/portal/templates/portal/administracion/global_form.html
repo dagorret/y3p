@@ -1,0 +1,9 @@
+<section id="admin-form" class="rounded-2xl bg-white p-6 shadow-sm">
+  <h1 class="text-2xl font-bold">{{ title }}</h1>
+  <p class="my-3 text-slate-600">{{ description }}</p>
+  <form method="post" action="{{ request.path }}" hx-post="{{ request.path }}" hx-target="#admin-form" hx-swap="outerHTML" hx-disabled-elt="find button">
+    {% csrf_token %}{{ form.as_p }}
+    <button class="mt-4 rounded-lg bg-blue-700 px-5 py-3 font-semibold text-white disabled:opacity-50">Registrar</button>
+    <a class="ml-4 text-blue-700 underline" href="{% url 'portal:administracion' %}">Volver al buscador</a>
+  </form>
+</section>

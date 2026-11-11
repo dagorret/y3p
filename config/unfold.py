@@ -1,4 +1,4 @@
-"""Django Unfold configuration for the Y3P technical backoffice."""
+"""Configuración de Django Unfold para el administrador técnico de Y3P."""
 
 from django.templatetags.static import static
 from django.urls import reverse_lazy

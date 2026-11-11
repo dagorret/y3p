@@ -5,6 +5,8 @@ import time
 from urllib.parse import urlparse
 
 from apps.integrations.dataclasses import (
+    ExternalActionResult,
+    CourseParticipant,
     MoodleEnrollmentResult,
     MoodleGroupResult,
     MoodleUserResult,
@@ -104,6 +106,7 @@ class MoodleRestClient(BaseIntegrationClient):
         self._raise_for_status(response, resource=resource or function)
         try:
             body = response.json()
+        #FINTEGRATIONSSERVICESMOODLE004-8004: Trata el fallo en este límite y conserva la política de respuesta o recuperación.
         except ValueError as error:
             #FMOODLE07-2007: JSON inválido no se confunde con una respuesta vacía exitosa.
             raise IntegrationError("Moodle devolvió una respuesta JSON inválida.") from error
@@ -269,6 +272,7 @@ class MoodleRestClient(BaseIntegrationClient):
                 },
                 resource=f"user={user_id},course={course_id}",
             )
+        #FINTEGRATIONSSERVICESMOODLE019-8019: Trata el fallo en este límite y conserva la política de respuesta o recuperación.
         except ResourceAlreadyExistsError as error:
             #FMOODLE25-2025: Código Moodle exacto ya matriculado equivale a estado deseado.
             if error.details.get("errorcode") in {
@@ -276,12 +280,13 @@ class MoodleRestClient(BaseIntegrationClient):
                 "enrolmentalreadyexists",
             }:
                 return MoodleEnrollmentResult(user_id, course_id, role_id, True)
+            #FINTEGRATIONSSERVICESMOODLE020-8020: Propaga el fallo original sin convertirlo en éxito.
             raise
         return MoodleEnrollmentResult(user_id, course_id, role_id, True)
 
     def unenrol_user(
         self, user_id: int, course_id: int, role_id: int = 5
-    ) -> MoodleEnrollmentResult:
+    ) -> ExternalActionResult:
         """Quita la matrícula del usuario mediante ``enrol_manual_unenrol_users``."""
 
         self._validate_enrollment_ids(user_id, course_id, role_id)
@@ -289,7 +294,7 @@ class MoodleRestClient(BaseIntegrationClient):
             "unenrol_user", user_id=user_id, course_id=course_id, role_id=role_id
         ):
             #FMOODLE26-2026: Bypass de baja de matrícula evita POST real.
-            return MoodleEnrollmentResult(user_id, course_id, role_id, True, simulated=True)
+            return ExternalActionResult("unenrol_user", simulated=True)
         self._call(
             "enrol_manual_unenrol_users",
             data={
@@ -299,7 +304,46 @@ class MoodleRestClient(BaseIntegrationClient):
             },
             resource=f"user={user_id},course={course_id}",
         )
-        return MoodleEnrollmentResult(user_id, course_id, role_id, True)
+        return ExternalActionResult("unenrol_user")
+
+    def get_course_participants(self, course_id: int) -> tuple[CourseParticipant, ...]:
+        if course_id <= 0:
+            #FINTEGRATIONSSERVICESMOODLE021-8021: Origina ValueError; el llamador conserva la causa y decide su tratamiento.
+            raise ValueError('El curso debe tener un identificador positivo.')
+        body = self._call('core_enrol_get_enrolled_users', data={
+            'courseid': course_id, 'options[0][name]': 'onlyactive', 'options[0][value]': 1,
+        })
+        if not isinstance(body, list):
+            #FINTEGRATIONSSERVICESMOODLE022-8022: Origina IntegrationError; el llamador conserva la causa y decide su tratamiento.
+            raise IntegrationError('Moodle devolvió participantes inválidos.')
+        participants = []
+        for row in body:
+            username = (row.get('username') or row.get('email')) if isinstance(row, dict) else None
+            if not username or not row.get('id'):
+                #FINTEGRATIONSSERVICESMOODLE023-8023: Origina IntegrationError; el llamador conserva la causa y decide su tratamiento.
+                raise IntegrationError('Moodle no devolvió el identificador institucional del participante.')
+            try:
+                participants.append(CourseParticipant(int(row['id']), str(username), str(row.get('firstname', '')),
+                    str(row.get('lastname', '')), tuple(int(role['roleid']) for role in row.get('roles', [])),
+                    tuple(str(group['name']) for group in row.get('groups', []))))
+            #FINTEGRATIONSSERVICESMOODLE024-8024: Trata el fallo en este límite y conserva la política de respuesta o recuperación.
+            except (KeyError, TypeError, ValueError) as error:
+                #FINTEGRATIONSSERVICESMOODLE025-8025: Origina IntegrationError; el llamador conserva la causa y decide su tratamiento.
+                raise IntegrationError('Moodle devolvió roles o grupos de participante inválidos.') from error
+        return tuple(participants)
+
+    def change_user_group(self, user_id: int, course_id: int, old_group_id: int | None, new_group_id: int) -> ExternalActionResult:
+        self._validate_enrollment_ids(user_id, course_id, 5)
+        self._validate_group_ids(new_group_id, user_id)
+        if old_group_id is not None:
+            self._validate_group_ids(old_group_id, user_id)
+        if self._intercept_dry_run("change_user_group", user_id=user_id, course_id=course_id,
+                                   old_group_id=old_group_id, new_group_id=new_group_id):
+            return ExternalActionResult("change_user_group", simulated=True)
+        if old_group_id is not None and old_group_id != new_group_id:
+            self.remove_user_from_group(old_group_id, user_id, course_id=course_id)
+        result = self.add_user_to_group(new_group_id, user_id, course_id=course_id)
+        return ExternalActionResult("change_user_group", success=result.success, simulated=result.simulated)
 
     def get_or_create_group(self, course_id: int, group_name: str) -> int:
         """Retorna grupo existente o lo crea; en dry-run usa ID sintético ``-1``.
@@ -409,6 +453,7 @@ class MoodleRestClient(BaseIntegrationClient):
             raise IntegrationError("Moodle devolvió un usuario incompleto.")
         try:
             user_id = int(user["id"])
+        #FINTEGRATIONSSERVICESMOODLE032-8032: Trata el fallo en este límite y conserva la política de respuesta o recuperación.
         except (TypeError, ValueError) as error:
             #FMOODLE37-2037: El ID Moodle es entero, no se acepta coerción inválida.
             raise IntegrationError("Moodle devolvió un ID de usuario inválido.") from error

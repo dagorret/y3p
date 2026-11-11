@@ -25,6 +25,7 @@ from .models import (
 )
 
 
+#FPEOPLESERVICES001-8001: Declara la excepción de dominio TransitionError para distinguir esta regla.
 class TransitionError(Exception):
     """Error de dominio que indica una transición imposible o bloqueada.
 
@@ -36,26 +37,29 @@ class TransitionError(Exception):
 
 
 def _emit_outbox_event(affiliation, status, *, commission=""):
-    """Persist an intent and schedule dispatch after the producer commits.
+    """Persiste una intención y solicita despacho después de confirmar la transacción.
 
-    The payload captures only execution inputs; current cross-affiliation
-    decisions remain live ORM reads in the consumer. Inserting the outbox row
-    in the caller's transaction guarantees rollback atomicity. The commit hook
-    only nudges Celery; periodic dispatch can recover if the broker is down.
+    Los datos de ejecución se copian al evento para conservar la decisión de
+    origen. Las decisiones entre vinculaciones se consultan al consumirlo.
+    Insertar el evento en la transacción del llamador garantiza la reversión
+    conjunta. La notificación posterior a la confirmación solo adelanta el
+    despacho: si falla el intermediario de mensajes, el barrido periódico
+    recupera la intención que sigue guardada en PostgreSQL.
     """
 
     if not status.provisioning_action:
-        #FOUT01-5001: States without an external action produce no outbox row.
+        #FOUT01-5001: Un estado sin acción externa no emite eventos.
         return None
 
     identity = affiliation.identity
     try:
         recipient = identity.personal_profile.personal_email
+    #FPEOPLESERVICES002-8002: Trata el fallo en este límite y conserva la política de respuesta o recuperación.
     except ObjectDoesNotExist:
-        #FOUT02-5002: Personal contact is optional, so store an empty recipient.
+        #FOUT02-5002: Si falta contacto personal, el destinatario queda vacío.
         recipient = ""
 
-    #FOUT03-5003: Credentials and temporary passwords never enter durable payload data.
+    #FOUT03-5003: El evento nunca conserva contraseñas ni credenciales temporales.
     payload = {
         "identifier": identity.identifier,
         "upn": identity.institutional_upn or "",
@@ -70,6 +74,7 @@ def _emit_outbox_event(affiliation, status, *, commission=""):
         ),
         "group_name": "",
         "profile_type_code": affiliation.profile_type.code,
+        "identity_category": identity.category,
         "career_code": affiliation.reference,
         "commission": commission,
         "modality": affiliation.modality,
@@ -82,7 +87,7 @@ def _emit_outbox_event(affiliation, status, *, commission=""):
         affiliation=affiliation,
         payload=payload,
     )
-    #FOUT04-5004: The callback runs only after the database commit; row durability precedes broker I/O.
+    #FOUT04-5004: La notificación ocurre después de confirmar la fila, antes del trabajo remoto.
     transaction.on_commit(
         lambda: current_app.send_task("provisioning.dispatch_outbox"), robust=True
     )
@@ -215,7 +220,7 @@ def _apply(affiliation, rule, *, changed_by, user, reason):
     #FSRV18-1018: Actualiza estado operativo antes de insertar el evento, en la misma transacción.
     affiliation.save(update_fields=["current_status", "expires_at", "is_active"])
 
-    #FSRV06-1006: Asiento append-only en la misma transacción que el cambio.
+    #FSRV06-1006: Asiento de solo anexado en la misma transacción que el cambio.
     AffiliationStatusHistory.objects.create(
         affiliation=affiliation,
         from_status=from_status,
@@ -257,7 +262,9 @@ def create_affiliation(
             status = SagaStatusDefinition.objects.get(
                 profile_type=profile_type, code=initial_status_code
             )
+        #FPEOPLESERVICES006-8006: Trata el fallo en este límite y conserva la política de respuesta o recuperación.
         except SagaStatusDefinition.DoesNotExist:
+            #FPEOPLESERVICES007-8007: Origina ConfigurationError; el llamador conserva la causa y decide su tratamiento.
             raise ConfigurationError(
                 f"El estado {initial_status_code} no pertenece al tipo de perfil {profile_type.code}."
             ) from None
@@ -321,6 +328,7 @@ def transition_affiliation(
             from_status=affiliation.current_status,
             to_status__code=to_status_code,
         )
+    #FPEOPLESERVICES010-8010: Trata el fallo en este límite y conserva la política de respuesta o recuperación.
     except SagaTransitionRule.DoesNotExist:
         #FSRV10-1010: No se permiten saltos no declarados en el grafo.
         raise TransitionError(
