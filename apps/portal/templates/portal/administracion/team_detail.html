@@ -1,3 +1,14 @@
 {% extends "portal/administracion/base_administracion.html" %}
-{% block title %}{{ team.display_name }} · Miembros Teams{% endblock %}
-{% block admin_content %}{% include "portal/administracion/team_detail_fragment.html" %}{% endblock %}
+
+{% comment %}
+#FPORTALHTML01-12111: Página contenedora del detalle del equipo seleccionado.
+La composición hereda sus anclajes de la página contenedora.
+La visibilidad acompaña permisos del servidor; ocultar controles no reemplaza su validación.
+{% endcomment %}
+
+{% block title %}
+  {{ team.display_name }} · Miembros Teams
+{% endblock %}
+{% block admin_content %}
+  {% include "portal/administracion/team_detail_fragment.html" %}
+{% endblock %}

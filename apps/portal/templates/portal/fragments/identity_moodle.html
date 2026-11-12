@@ -1,0 +1,46 @@
+{% comment %}
+#FPORTALHTML01-12126: Matrícula y desmatrícula puntual en Moodle; visible únicamente para operadores habilitados.
+Destinos HTMX: #identity-card.
+La visibilidad acompaña permisos del servidor; ocultar controles no reemplaza su validación.
+{% endcomment %}
+
+{% if can_operate_daily %}
+  <section class="rounded-xl bg-white p-6 shadow-sm">
+    <h2 class="text-xl font-bold">Moodle Express</h2>
+    <p class="text-sm text-slate-600">
+      Indique el shortname exacto. Los roles son Estudiante (5) y Docente (3); deben coincidir con la configuración de Moodle.
+    </p>
+    <form method="post"
+          hx-post="{% url 'portal:identity_moodle_enrol' identity.pk %}"
+          hx-target="#identity-card"
+          hx-swap="outerHTML"
+          class="my-3">
+      {% csrf_token %}
+      {{ moodle_form.as_p }}
+      <button class="rounded bg-blue-700 px-4 py-2 text-white">Inscribir y asignar comisión</button>
+    </form>
+    <form method="post"
+          hx-post="{% url 'portal:identity_moodle_unenrol' identity.pk %}"
+          hx-target="#identity-card"
+          hx-swap="outerHTML"
+          hx-confirm="¿Desmatricular de este curso y rol?">
+      {% csrf_token %}
+      <label>
+        Shortname
+        <select name="shortname" required>
+          {% for course in moodle_form.fields.shortname.widget.choices %}
+            <option value="{{ course.0 }}">{{ course.1 }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>
+        Rol
+        <select name="role_id">
+          <option value="5">Estudiante</option>
+          <option value="3">Docente</option>
+        </select>
+      </label>
+      <button class="rounded border border-red-700 px-4 py-2 text-red-700">Desmatricular del curso</button>
+    </form>
+  </section>
+{% endif %}

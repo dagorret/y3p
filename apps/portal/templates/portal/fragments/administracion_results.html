@@ -1,81 +1,45 @@
+{% comment %}
+#FPORTALHTML01-12118: Composición de resultados: mensajes, formulario por lote, tabla y navegación. No consulta proveedores.
+Destinos HTMX: {% if builder_mode %}#query-builder{% else %}#tabla-alumnos-container{% endif %}.
+La visibilidad acompaña permisos del servidor; ocultar controles no reemplaza su validación.
+{% endcomment %}
+
 <section id="tabla-alumnos-container" aria-live="polite" class="space-y-4">
-  {% if query_error %}<div role="alert" class="rounded-xl bg-red-100 p-4 text-red-900">{{ query_error }}</div>{% endif %}
-  {% if feedback %}<div role="status" class="rounded-xl p-4 {% if error %}bg-red-100 text-red-900{% else %}bg-emerald-100 text-emerald-900{% endif %}">{{ feedback }}</div>{% endif %}
-  <div class="flex justify-between text-sm text-slate-600"><span>{{ page_obj.paginator.count }} alumnos encontrados</span><span>Página {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}</span></div>
-  {% if can_operate_daily and not builder_mode %}<form id="student-bulk-form" method="post" hx-post="{{ bulk_url }}" hx-include="#student-filters" hx-target="{% if builder_mode %}#query-builder{% else %}#tabla-alumnos-container{% endif %}" hx-swap="outerHTML" hx-disabled-elt="find button[type=submit]">
-    {% csrf_token %}
-    <input type="hidden" name="page" value="{{ page_obj.number }}">
-    <div id="student-bulk-toolbar" hidden class="sticky top-0 z-10 rounded-xl bg-slate-900 p-4 text-white">
-      <p class="mb-3"><strong id="student-selection-count">0</strong> seleccionados. Las acciones se registran en el Outbox; no se ejecutan en el navegador.</p>
-      <div class="flex flex-wrap items-start gap-3">
-        {% if is_scoped_academic %}<button type="submit" name="action" value="confirm" class="rounded-lg bg-blue-700 px-3 py-2" hx-confirm="¿Confirmar las preinscripciones seleccionadas de este ámbito?">Confirmar Preinscriptos</button>{% else %}
-        <button type="submit" name="action" value="credentials" class="rounded-lg border px-3 py-2" hx-confirm="¿Registrar reenvío de claves para los alumnos seleccionados?">Reenviar Claves Seleccionadas</button>{% endif %}
-        <details class="rounded-lg border p-2"><summary class="cursor-pointer">Enviar Notificación por Email</summary>
-          <div class="mt-3 space-y-3">
-            <label>Asunto del correo<input name="subject" maxlength="200" class="text-slate-900"></label>
-            <label>Cuerpo del mensaje<textarea name="body" rows="6" maxlength="10000" class="w-full text-slate-900"></textarea></label>
-            <p class="text-sm">Variables disponibles: {full_name}, {upn}, {document_number}.</p>
-            <button type="submit" name="action" value="notification" class="rounded bg-blue-600 px-3 py-2">Confirmar envío</button>
-          </div>
-        </details>
-        {% if not is_scoped_academic %}<details class="rounded-lg border p-2"><summary class="cursor-pointer">Matricular en Curso Moodle</summary>
-          <div class="mt-3 space-y-2 text-slate-900">
-            <label class="text-white">Shortname<select name="shortname"><option value="">Seleccione un curso</option>{% for course in moodle_courses %}<option value="{{ course.shortname }}">{{ course.shortname }} · {{ course.fullname }}</option>{% endfor %}</select></label>
-            <label class="text-white">Rol<select name="role_id"><option value="5">Estudiante</option><option value="3">Docente</option></select></label>
-            <label class="text-white">Comisión opcional<input name="group_name" maxlength="100"></label>
-            <button type="submit" name="action" value="moodle_enrol" class="rounded bg-blue-600 px-3 py-2 text-white">Encolar matrícula en lote</button>
-          </div>
-        </details>
-        {% if can_administer_critical %}<button type="submit" name="action" value="license" class="rounded-lg border border-amber-400 px-3 py-2" hx-confirm="¿Registrar conmutación A1 para los alumnos seleccionados?">Conmutar Licencia A1 en Lote</button>{% endif %}{% endif %}
-      </div>
+  {% if query_error %}
+    <div role="alert" class="rounded-xl bg-red-100 p-4 text-red-900">{{ query_error }}</div>
+  {% endif %}
+  {% if feedback %}
+    <div role="status"
+         class="rounded-xl p-4 {% if error %}bg-red-100 text-red-900{% else %}bg-emerald-100 text-emerald-900{% endif %}">
+      {{ feedback }}
     </div>
   {% endif %}
-  <div class="overflow-x-auto rounded-xl border bg-white">
-    <table class="w-full text-left text-sm" id="student-grid">
-      <thead class="bg-slate-100"><tr>
-        {% if can_operate_daily and not builder_mode %}<th class="p-3"><input type="checkbox" id="student-select-all" aria-label="Seleccionar todos los alumnos de esta página"></th>{% endif %}
-        <th class="p-3">DNI</th><th class="p-3">Apellido y Nombre</th><th class="p-3">UPN Institucional</th><th class="p-3">Carrera</th><th class="p-3">Estado Saga</th><th class="p-3">Vencimiento TTL</th><th class="p-3">Salud / Semáforo</th><th class="p-3">Acciones</th>
-      </tr></thead>
-      <tbody>{% for identity in identities %}<tr class="border-t align-top" data-identity-id="{{ identity.pk }}" data-health="{{ identity.health }}">
-        {% if can_operate_daily and not builder_mode %}<td class="p-3"><input class="student-select" type="checkbox" name="identity_ids" value="{{ identity.pk }}" aria-label="Seleccionar {{ identity.identifier }}"></td>{% endif %}
-        <td class="p-3">{{ identity.identifier }}</td>
-        <td class="p-3"><strong>{{ identity.last_name }}, {{ identity.first_name }}</strong></td>
-        <td class="p-3">{{ identity.institutional_upn|default:"UPN pendiente" }}</td>
-        <td class="p-3">{% for affiliation in identity.grade_affiliations %}<p>{{ affiliation.reference|default:"Sin carrera" }}</p>{% endfor %}</td>
-        <td class="p-3">{% for affiliation in identity.grade_affiliations %}<p>{{ affiliation.current_status.code }}</p>{% endfor %}</td>
-        <td class="p-3">{% for affiliation in identity.grade_affiliations %}<p>{{ affiliation.expires_at|date:"d/m/Y H:i:s"|default:"Indefinida" }}</p>{% endfor %}</td>
-        <td class="p-3"><span title="{{ identity.health_reason }}" class="inline-block rounded-full px-3 py-1 font-semibold {% if identity.health == 'green' %}bg-emerald-100 text-emerald-900{% elif identity.health == 'red' %}bg-red-100 text-red-900{% elif identity.health == 'orange' %}bg-orange-100 text-orange-900{% else %}bg-yellow-100 text-yellow-900{% endif %}">{% if identity.health == 'green' %}🟢{% elif identity.health == 'red' %}🔴{% elif identity.health == 'orange' %}🟠{% else %}🟡{% endif %} {{ identity.health_label }}</span><p class="sr-only">{{ identity.health_reason }}</p></td>
-        <td class="p-3"><a class="text-blue-700 underline" href="{{ identity.detail_url }}">Abrir Ficha 360°</a></td>
-      </tr>{% empty %}<tr><td colspan="9" class="p-8 text-center text-slate-600">No hay alumnos que coincidan con los filtros.</td></tr>{% endfor %}</tbody>
-    </table>
+  <div class="flex justify-between text-sm text-slate-600">
+    <span>{{ page_obj.paginator.count }} alumnos encontrados</span>
+    <span>Página {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}</span>
   </div>
-  {% if can_operate_daily and not builder_mode %}</form>
-  <script>
-    (() => {
-      const root = document.getElementById('tabla-alumnos-container');
-      const all = root.querySelector('#student-select-all');
-      const boxes = [...root.querySelectorAll('.student-select')];
-      const refresh = () => {
-        const selected = boxes.filter(box => box.checked).length;
-        root.querySelector('#student-bulk-toolbar').hidden = selected === 0;
-        root.querySelector('#student-selection-count').textContent = selected;
-        all.checked = boxes.length > 0 && selected === boxes.length;
-        all.indeterminate = selected > 0 && selected < boxes.length;
-      };
-      all.addEventListener('change', () => { boxes.forEach(box => box.checked = all.checked); refresh(); });
-      boxes.forEach(box => box.addEventListener('change', refresh));
-    })();
-  </script>{% endif %}
-  <nav class="flex justify-between" aria-label="Paginación de alumnos">
-    {% if previous_url %}<a href="{{ previous_url }}" hx-get="{{ previous_url }}" hx-target="{% if builder_mode %}#query-builder{% else %}#tabla-alumnos-container{% endif %}" hx-swap="outerHTML" hx-push-url="true" class="text-blue-700 underline">« Anterior</a>{% else %}<span></span>{% endif %}
-    <span class="flex flex-wrap gap-2">{% for item in page_links %}{% if item.ellipsis %}<span>{{ item.number }}</span>{% elif item.current %}<span aria-current="page" class="font-bold">{{ item.number }}</span>{% else %}<a href="{{ item.url }}" hx-get="{{ item.url }}" hx-target="{% if builder_mode %}#query-builder{% else %}#tabla-alumnos-container{% endif %}" hx-swap="outerHTML" hx-push-url="true" class="text-blue-700 underline">{{ item.number }}</a>{% endif %}{% endfor %}</span>
-    {% if next_url %}<a href="{{ next_url }}" hx-get="{{ next_url }}" hx-target="{% if builder_mode %}#query-builder{% else %}#tabla-alumnos-container{% endif %}" hx-swap="outerHTML" hx-push-url="true" class="text-blue-700 underline">Siguiente »</a>{% endif %}
-  </nav>
-  <label class="block max-w-md text-sm">Vistas Guardadas (Snippets)
-    <select name="snippet" hx-get="{{ grid_url }}" hx-trigger="change" hx-target="{% if builder_mode %}#query-builder{% else %}#tabla-alumnos-container{% endif %}" hx-swap="outerHTML" hx-push-url="true">
-      <option value="">Elegir una vista guardada</option>{% for snippet in snippets %}<option value="{{ snippet.pk }}">{{ snippet.name }} · {{ snippet.is_shared|yesno:"Compartida,Privada" }}</option>{% endfor %}
-    </select>
-  </label>
-</section>
+  {% if can_operate_daily and not builder_mode %}
+    <form id="student-bulk-form"
+          method="post"
+          hx-post="{{ bulk_url }}"
+          hx-include="#student-filters"
+          hx-target="{% if builder_mode %}#query-builder{% else %}#tabla-alumnos-container{% endif %}"
+          hx-swap="outerHTML"
+          hx-disabled-elt="find button[type=submit]">
+      {% csrf_token %}
+      <input type="hidden" name="page" value="{{ page_obj.number }}">
 
-{% if refresh_filters and not builder_mode %}{% include "portal/fragments/student_filters.html" with oob=True %}{% endif %}
+      {% include "portal/fragments/student_bulk_toolbar.html" %}
+  {% endif %}
+
+  {% include "portal/fragments/student_table.html" %}
+  {% if can_operate_daily and not builder_mode %}
+    </form>
+  {% endif %}
+
+  {% include "portal/fragments/student_navigation.html" %}
+</section>
+{% if refresh_filters and not builder_mode %}
+
+  {% include "portal/fragments/student_filters.html" with oob=True %}
+{% endif %}

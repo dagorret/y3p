@@ -1,0 +1,61 @@
+{% comment %}
+#FPORTALHTML01-12131: Eventos del ámbito autorizado; selección y rearme visibles sólo con permiso crítico.
+Destinos HTMX: #outbox-monitor.
+La visibilidad acompaña permisos del servidor; ocultar controles no reemplaza su validación.
+{% endcomment %}
+
+<div class="overflow-x-auto">
+  <table class="w-full bg-white text-left text-sm">
+    <thead>
+      <tr>
+        <th>Selección</th>
+        <th>Fecha</th>
+        <th>Identidad</th>
+        <th>Ámbito</th>
+        <th>Operación</th>
+        <th>Estado</th>
+        <th>Reintentos</th>
+        <th>Último error</th>
+        <th>Acciones</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for event in events_page %}
+        <tr class="border-t">
+          <td class="p-3">
+            {% if event.status == "FAILED" and can_rearm %}
+              <input type="checkbox"
+                     name="event_ids"
+                     value="{{ event.pk }}"
+                     aria-label="Seleccionar evento {{ event.pk }}">
+            {% endif %}
+          </td>
+          <td class="p-3">{{ event.created_at }}</td>
+          <td class="p-3">{{ event.identity }}</td>
+          <td class="p-3">{{ event.affiliation.profile_type.name }}</td>
+          <td class="p-3">{{ event.get_action_display }}</td>
+          <td class="p-3">{{ event.get_status_display }}</td>
+          <td class="p-3">{{ event.attempts }}</td>
+          <td class="max-w-sm break-words p-3">{{ event.last_error|default:"Sin errores" }}</td>
+          <td>
+            {% if event.status == "FAILED" and can_rearm %}
+              <button type="button"
+                      class="text-blue-700 underline"
+                      hx-post="{% url 'portal:outbox_monitor' %}"
+                      hx-vals='{"event_ids":"{{ event.pk }}"}'
+                      hx-params="event_ids,csrfmiddlewaretoken,status,action,scope"
+                      hx-target="#outbox-monitor"
+                      hx-swap="outerHTML">
+                Rearmar evento
+              </button>
+            {% endif %}
+          </td>
+        </tr>
+      {% empty %}
+        <tr>
+          <td colspan="9">Sin eventos en los ámbitos autorizados.</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

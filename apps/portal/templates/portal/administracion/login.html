@@ -1,12 +1,25 @@
 {% extends "portal/base.html" %}
-{% block title %}Ingresar a Administración · Y3P{% endblock %}
+
+{% comment %}
+#FPORTALHTML01-12106: Ingreso al portal con errores de autenticación y retorno controlado por Django.
+La composición hereda sus anclajes de la página contenedora.
+La visibilidad acompaña permisos del servidor; ocultar controles no reemplaza su validación.
+{% endcomment %}
+
+{% block title %}
+  Ingresar a Administración · Y3P
+{% endblock %}
 {% block content %}
-<section class="mx-auto max-w-md rounded-2xl bg-white p-6 shadow-sm">
-  <h1 class="mb-4 text-2xl font-bold">Ingresar a Administración</h1>
-  <p class="mb-4 text-slate-600">Utilice su cuenta institucional de operador. El grupo asignado determina las herramientas disponibles.</p>
-  <form method="post">{% csrf_token %}{{ form.as_p }}
-    <input type="hidden" name="next" value="{{ next }}">
-    <button class="mt-4 rounded-lg bg-blue-700 px-5 py-3 text-white">Ingresar</button>
-  </form>
-</section>
+  <section class="mx-auto max-w-md rounded-2xl bg-white p-6 shadow-sm">
+    <h1 class="mb-4 text-2xl font-bold">Ingresar a Administración</h1>
+    <p class="mb-4 text-slate-600">
+      Utilice su cuenta institucional de operador. El grupo asignado determina las herramientas disponibles.
+    </p>
+    <form method="post">
+      {% csrf_token %}
+      {{ form.as_p }}
+      <input type="hidden" name="next" value="{{ next }}">
+      <button class="mt-4 rounded-lg bg-blue-700 px-5 py-3 text-white">Ingresar</button>
+    </form>
+  </section>
 {% endblock %}

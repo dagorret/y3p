@@ -1,20 +1,76 @@
+{% comment %}
+#FPORTALHTML01-12112: Correspondencia pedagógica, población del equipo y miembros observados.
+Destinos HTMX: #teams-panel.
+La visibilidad acompaña permisos del servidor; ocultar controles no reemplaza su validación.
+{% endcomment %}
+
 <section id="teams-panel" class="space-y-6">
   <a href="{% url 'portal:teams' %}" class="text-blue-700 underline">Volver a la consola Teams</a>
   <h1 class="text-3xl font-bold">{{ team.display_name }}</h1>
   <p>{{ team.pk }} · {{ team.owner_upn }} · {{ team.parity }}</p>
   <div class="grid gap-6 lg:grid-cols-2">
-    <section class="rounded-xl bg-white p-5"><h2 class="text-xl font-bold">Correspondencia pedagógica</h2>
+    <section class="rounded-xl bg-white p-5">
+      <h2 class="text-xl font-bold">Correspondencia pedagógica</h2>
       <p>La asociación es explícita: no se deduce un curso por el nombre del equipo.</p>
-      <form method="post" hx-post="{% url 'portal:team_configure' team.pk %}" hx-target="#teams-panel" hx-swap="outerHTML">{% csrf_token %}{{ mapping_form.as_p }}<button class="rounded bg-blue-700 px-4 py-2 text-white">Guardar correspondencia</button></form>
+      <form method="post"
+            hx-post="{% url 'portal:team_configure' team.pk %}"
+            hx-target="#teams-panel"
+            hx-swap="outerHTML">
+        {% csrf_token %}
+        {{ mapping_form.as_p }}
+        <button class="rounded bg-blue-700 px-4 py-2 text-white">Guardar correspondencia</button>
+      </form>
     </section>
-    <section class="rounded-xl bg-white p-5"><h2 class="text-xl font-bold">Poblar Equipo</h2>
+    <section class="rounded-xl bg-white p-5">
+      <h2 class="text-xl font-bold">Poblar Equipo</h2>
       <p>Agrega alumnos nuevos desde Moodle o ingresantes SIAL. No retira miembros ni cambia propietarios.</p>
-      <form method="post" hx-post="{% url 'portal:team_populate' team.pk %}" hx-target="#teams-panel" hx-swap="outerHTML" hx-disabled-elt="find button" hx-confirm="¿Agregar alumnos del origen seleccionado a este equipo?">{% csrf_token %}{{ population_form.as_p }}<button class="rounded bg-blue-700 px-4 py-2 text-white">Poblar Equipo</button></form>
+      <form method="post"
+            hx-post="{% url 'portal:team_populate' team.pk %}"
+            hx-target="#teams-panel"
+            hx-swap="outerHTML"
+            hx-disabled-elt="find button"
+            hx-confirm="¿Agregar alumnos del origen seleccionado a este equipo?">
+        {% csrf_token %}
+        {{ population_form.as_p }}
+        <button class="rounded bg-blue-700 px-4 py-2 text-white">Poblar Equipo</button>
+      </form>
     </section>
   </div>
-  <section class="rounded-xl bg-white p-5"><div class="flex justify-between"><h2 class="text-xl font-bold">Miembros observados</h2>
-    <form method="post" hx-post="{% url 'portal:team_refresh' team.pk %}" hx-target="#teams-panel" hx-swap="outerHTML">{% csrf_token %}<button class="text-blue-700 underline">Actualizar observaciones</button></form></div>
-    <p class="my-3 text-sm">Observación Teams: {{ team.observed_at|default:"Sin lectura remota" }}. En mocks, la tabla usa los registros locales actuales.</p>
-    <table class="w-full text-left text-sm"><thead><tr><th class="p-2">Nombre</th><th class="p-2">UPN</th><th class="p-2">Rol</th></tr></thead><tbody>{% for member in team.console_members %}<tr class="border-t"><td class="p-2">{{ member.display_name }}</td><td class="p-2">{{ member.upn }}</td><td class="p-2">{{ member.is_owner|yesno:"Propietario,Alumno / miembro" }}</td></tr>{% empty %}<tr><td colspan="3" class="p-3">Sin miembros observados.</td></tr>{% endfor %}</tbody></table>
+  <section class="rounded-xl bg-white p-5">
+    <div class="flex justify-between">
+      <h2 class="text-xl font-bold">Miembros observados</h2>
+      <form method="post"
+            hx-post="{% url 'portal:team_refresh' team.pk %}"
+            hx-target="#teams-panel"
+            hx-swap="outerHTML">
+        {% csrf_token %}
+        <button class="text-blue-700 underline">Actualizar observaciones</button>
+      </form>
+    </div>
+    <p class="my-3 text-sm">
+      Observación Teams: {{ team.observed_at|default:"Sin lectura remota" }}. En mocks, la tabla usa los registros locales actuales.
+    </p>
+    <table class="w-full text-left text-sm">
+      <thead>
+        <tr>
+          <th class="p-2">Nombre</th>
+          <th class="p-2">UPN</th>
+          <th class="p-2">Rol</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for member in team.console_members %}
+          <tr class="border-t">
+            <td class="p-2">{{ member.display_name }}</td>
+            <td class="p-2">{{ member.upn }}</td>
+            <td class="p-2">{{ member.is_owner|yesno:"Propietario,Alumno / miembro" }}</td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="3" class="p-3">Sin miembros observados.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </section>
 </section>

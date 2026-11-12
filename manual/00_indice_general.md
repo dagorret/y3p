@@ -1,42 +1,7 @@
-# Manual Operativo de Administración — Y3P / MT^3
+# Manual de Usuario y Operación — v0.4.6
 
-**Facultad de Ciencias Económicas — Universidad Nacional de Río Cuarto**  
-**Versión de referencia:** v0.2.0 · **Edición:** 11 de noviembre de 2026
+El manual vigente se reconstruyó en `docs/` para reunir operación y arquitectura en una única referencia.
 
-## Alcance
+[Leer el capítulo actualizado](../docs/README.md) · [Índice completo](../docs/README.md).
 
-Este manual acompaña a operadores de secretarías, autoridades y administradores técnicos en el registro de vinculaciones y el seguimiento de cuentas institucionales. Describe el comportamiento del código publicado en v0.2.0; cada instalación requiere verificar su configuración y servicios.
-
-La versión incluye identidades y vinculaciones, reglas de estados, adaptadores externos, registro de trabajos pendientes (Outbox), administración Unfold y portales HTMX. Incorpora además utilidades UUIDv8 y huellas SHA-256, y el modelo `DigitalAccount`.
-
-El capítulo 06 complementa esa referencia con el procedimiento de evolución posterior: incorporación de plataformas y proveedores de identidad. Distingue la parametrización disponible de las integraciones que aún deben desarrollarse.
-
-> [!NOTE]
-> UUIDv8 y DigitalAccount son componentes disponibles para la evolución de Lucy. En esta versión no sustituyen automáticamente las claves existentes, no sincronizan cuentas por sí solos y no disponen de una pantalla propia en el administrador.
-
-## Mapa de lectura
-
-| Perfil | Lectura recomendada | Responsabilidad |
-|---|---|---|
-| Operadores y secretarías | Capítulos 1, 2, 3 y protocolo inicial del 5 | Registrar datos y comunicar incidencias sin duplicar inscripciones |
-| Autoridades | Capítulos 1 y 3; estados del capítulo 2 y criterios del 6 | Interpretar avances, límites y decisiones institucionales |
-| Administración técnica / TI | Manual completo, especialmente 4, 5 y 6 | Configurar servicios, permisos, integraciones y recuperación |
-
-Los perfiles de esta tabla expresan responsabilidades de trabajo; no constituyen grupos de permisos preconfigurados.
-
-## Capítulos
-
-1. [Propósito y visión general](01_proposito_y_vision_general.md).
-2. [Entornos de trabajo](02_entornos_de_trabajo.md).
-3. [Ciclo de vida y estados](03_ciclo_de_vida_y_estados.md).
-4. [Puesta en marcha y operación técnica](04_puesta_en_marcha_y_operacion.md).
-5. [Contingencias y preguntas frecuentes](05_contingencias_y_faq.md).
-6. [Incorporación de nuevas plataformas e identidades](06_incorporacion_nuevas_plataformas_e_identidades.md).
-
-## Documentación de respaldo
-
-- [Diseño de entidades y estados](../docs/01_01_entidades_base_y_diseno.md).
-- [Clientes de integración](../docs/01_02_clientes_integracion.md).
-- [Outbox y orquestación](../docs/01_03_outbox_y_orquestador.md).
-
-Las indicaciones operativas se contrastaron con el código. Los documentos de diseño aportan contexto y pueden describir objetivos más amplios que la implementación disponible.
+Este enlace conserva la ubicación anterior. Las instrucciones de v0.2.0, las contraseñas de ejemplo y la agenda TTL manual fueron reemplazadas por la documentación del comportamiento actual. La habilitación para producción sigue pendiente del bloque de seguridad.

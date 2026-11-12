@@ -1,14 +1,83 @@
+{% comment %}
+#FPORTALHTML01-12140: Filtros rápidos compartidos por las tres consolas y exportación con los valores visibles.
+Destinos HTMX: {% if builder_mode %}#query-builder{% else %}#tabla-alumnos-container{% endif %}.
+La visibilidad acompaña permisos del servidor; ocultar controles no reemplaza su validación.
+{% endcomment %}
+
 <section id="student-query-panel" {% if oob %}hx-swap-oob="outerHTML"{% endif %}>
-  <form id="student-filters" method="get" class="mb-3 grid grid-cols-2 items-end gap-2 lg:flex lg:flex-wrap rounded-xl bg-white p-3"
-        hx-get="{{ grid_url }}" hx-trigger="submit, change target:select" hx-target="{% if builder_mode %}#query-builder{% else %}#tabla-alumnos-container{% endif %}" hx-swap="outerHTML" hx-push-url="true">
-    <label class="order-1 min-w-0 lg:order-none lg:w-28">Carrera<select name="career"><option value="">Todas</option>{% for career in careers %}<option value="{{ career }}" {% if filters.career == career %}selected{% endif %}>{{ career }}</option>{% endfor %}</select></label>
-    <label class="order-2 min-w-0 lg:order-none lg:w-40">Estado de saga<select name="status"><option value="">Todos</option>{% for code, name in saga_states %}<option value="{{ code }}" {% if filters.status == code %}selected{% endif %}>{{ code }} · {{ name }}</option>{% endfor %}</select></label>
-    <label class="order-4 min-w-0 lg:order-none lg:w-32">Semáforo<select name="health"><option value="">Todos</option>{% for code, label in health_options %}<option value="{{ code }}" {% if filters.health == code %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
-    <label for="person-search" class="order-3 col-span-2 min-w-0 lg:order-none lg:min-w-[180px] lg:max-w-xs lg:flex-1">DNI, apellido, nombre o UPN<input id="person-search" name="q" type="search" value="{{ query }}" autocomplete="off" placeholder="Ej.: 30123456 o Pérez"
-         hx-get="{{ grid_url }}" hx-include="#student-filters" hx-trigger="keyup changed delay:300ms, search" hx-target="{% if builder_mode %}#query-builder{% else %}#tabla-alumnos-container{% endif %}" hx-swap="outerHTML" hx-push-url="true"></label>
-    <label class="order-5 min-w-0 lg:order-none lg:w-36">Filas por página<select name="page_size">{% for size in page_sizes %}<option value="{{ size }}" {% if page_size == size %}selected{% endif %}>{{ size }}</option>{% endfor %}</select></label>
-    {% if not builder_mode %}<input type="hidden" name="formula" value="{{ formula }}">{% endif %}
-    {% if builder_mode %}{% include "portal/fragments/formula_editor.html" %}{% endif %}
-    <a href="{{ export_url }}?{{ export_query }}" data-url="{{ export_url }}" onclick="this.href = this.dataset.url + '?' + new URLSearchParams(new FormData(document.getElementById('student-filters'))).toString()" class="order-6 col-span-2 rounded-lg bg-blue-700 px-4 py-2 text-center text-white lg:order-none">Exportar a Excel</a>
+  <form id="student-filters"
+        method="get"
+        class="mb-3 grid grid-cols-2 items-end gap-2 lg:flex lg:flex-wrap rounded-xl bg-white p-3"
+        hx-get="{{ grid_url }}"
+        hx-trigger="submit, change target:select"
+        hx-target="{% if builder_mode %}#query-builder{% else %}#tabla-alumnos-container{% endif %}"
+        hx-swap="outerHTML"
+        hx-push-url="true">
+    <label class="order-1 min-w-0 lg:order-none lg:w-28">
+      Carrera
+      <select name="career">
+        <option value="">Todas</option>
+        {% for career in careers %}
+          <option value="{{ career }}" {% if filters.career == career %}selected{% endif %}>{{ career }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="order-2 min-w-0 lg:order-none lg:w-40">
+      Estado de saga
+      <select name="status">
+        <option value="">Todos</option>
+        {% for code, name in saga_states %}
+          <option value="{{ code }}" {% if filters.status == code %}selected{% endif %}>
+            {{ code }} · {{ name }}
+          </option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="order-4 min-w-0 lg:order-none lg:w-32">
+      Semáforo
+      <select name="health">
+        <option value="">Todos</option>
+        {% for code, label in health_options %}
+          <option value="{{ code }}" {% if filters.health == code %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label for="person-search"
+           class="order-3 col-span-2 min-w-0 lg:order-none lg:min-w-[180px] lg:max-w-xs lg:flex-1">
+      DNI, apellido, nombre o UPN
+      <input id="person-search"
+             name="q"
+             type="search"
+             value="{{ query }}"
+             autocomplete="off"
+             placeholder="Ej.: 30123456 o Pérez"
+             hx-get="{{ grid_url }}"
+             hx-include="#student-filters"
+             hx-trigger="keyup changed delay:300ms, search"
+             hx-target="{% if builder_mode %}#query-builder{% else %}#tabla-alumnos-container{% endif %}"
+             hx-swap="outerHTML"
+             hx-push-url="true">
+    </label>
+    <label class="order-5 min-w-0 lg:order-none lg:w-36">
+      Filas por página
+      <select name="page_size">
+        {% for size in page_sizes %}
+          <option value="{{ size }}" {% if page_size == size %}selected{% endif %}>{{ size }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    {% if not builder_mode %}
+      <input type="hidden" name="formula" value="{{ formula }}">
+    {% endif %}
+    {% if builder_mode %}
+
+      {% include "portal/fragments/formula_editor.html" %}
+    {% endif %}
+    <a href="{{ export_url }}?{{ export_query }}"
+       data-url="{{ export_url }}"
+       data-student-export
+       class="order-6 col-span-2 rounded-lg bg-blue-700 px-4 py-2 text-center text-white lg:order-none">
+      Exportar a Excel
+    </a>
   </form>
 </section>

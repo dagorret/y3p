@@ -1,7 +1,16 @@
+{% comment %}
+#FPORTALHTML01-12136: Constructor de fórmulas con vista previa y gestión de consultas privadas o compartidas.
+Anclaje: query-builder.
+La visibilidad acompaña permisos del servidor; ocultar controles no reemplaza su validación.
+{% endcomment %}
+
 <section id="query-builder" class="space-y-4">
   <h1 class="text-2xl font-bold">Vistas y Snippets</h1>
+
   {% include "portal/fragments/student_filters.html" %}
+
   {% include "portal/fragments/snippet_management.html" %}
   <h2 class="text-xl font-bold">Vista previa de alumnos</h2>
+
   {% include "portal/fragments/administracion_results.html" %}
 </section>

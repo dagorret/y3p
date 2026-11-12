@@ -1,0 +1,57 @@
+{% comment %}
+#FPORTALHTML01-12144: Bitácora de operaciones del portal; no representa un inventario completo ni registros de acceso.
+La composición hereda sus anclajes de la página contenedora.
+La visibilidad acompaña permisos del servidor; ocultar controles no reemplaza su validación.
+{% endcomment %}
+
+<section class="rounded-2xl bg-white p-6 shadow-sm">
+  <h2 class="mb-4 text-xl font-bold">Actividad del portal</h2>
+  <p class="mb-4 text-sm text-slate-600">
+    Últimas 30 operaciones registradas aquí; no es un inventario completo del tenant. ACCEPTED indica una solicitud aún no confirmada como equipo disponible.
+  </p>
+  <div class="overflow-x-auto">
+    <table class="w-full text-left text-sm">
+      <thead>
+        <tr>
+          <th class="p-2">Fecha / operador</th>
+          <th class="p-2">Equipo / acción</th>
+          <th class="p-2">Estado</th>
+          <th class="p-2">Acceso</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for operation in team_operations %}
+          <tr class="border-t">
+            <td class="p-2">
+              {{ operation.at }}
+              <br>
+              {{ operation.user }}
+            </td>
+            <td class="p-2">
+              {{ operation.name }} {{ operation.team_id|default:"ID pendiente" }}
+              <br>
+              {{ operation.action }}
+            </td>
+            <td class="p-2">
+              {{ operation.status }}
+              {% if operation.action == "purge_team" %}
+                · {{ operation.affected_count|default:0 }} retirados
+              {% endif %}
+            </td>
+            <td class="p-2">
+              {% if operation.team_id %}
+                <a class="text-blue-700 underline" href="{% url 'portal:team_purge' operation.team_id %}">
+                  Preparar limpieza
+                </a>
+              {% endif %}
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="4" class="p-4 text-slate-600">Sin operaciones registradas.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>

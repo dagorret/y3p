@@ -15,6 +15,7 @@ from django.template.loader import render_to_string
 from django.test import TestCase, Client, override_settings
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.html import strip_tags
 from openpyxl import load_workbook
 
 from apps.people.models import Affiliation, Identity, PersonalProfile, ProfileTypeDefinition, SagaStatusDefinition, OutboxEvent, AffiliationStatusHistory
@@ -260,7 +261,10 @@ class AcademicOutboxTests(TestCase):
         self.assertEqual(response.context['events_page'].paginator.count, 1)
         self.assertNotContains(response, self.students['EXTENSION'][0].identifier)
         self.assertNotContains(response, 'Rearmar seleccionados')
-        self.assertContains(self.client.get(reverse('portal:outbox_badge')), '>2</span>', html=False)
+        #FPORTALPRUEBAS02-12302: Verifica el número visible sin acoplarse a los saltos de línea.
+        badge = self.client.get(reverse('portal:outbox_badge'))
+        self.assertEqual(badge.status_code, 200)
+        self.assertEqual(strip_tags(badge.content.decode()).strip(), '2')
         self.assertEqual(OutboxEvent.objects.filter(status='FAILED').count(), 2)
         self.client.force_login(self.users['POSGRADO']['jefe'])
         self.assertEqual(self.client.get(reverse('portal:outbox_monitor')).status_code, 403)

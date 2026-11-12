@@ -1,0 +1,32 @@
+{% comment %}
+#FPORTALHTML01-12128: Pertenencias y canales del catálogo relacional. Un canal privado no acredita acceso individual.
+La composición hereda sus anclajes de la página contenedora.
+La visibilidad acompaña permisos del servidor; ocultar controles no reemplaza su validación.
+{% endcomment %}
+
+<section class="rounded-xl bg-white p-6 shadow-sm">
+  <h2 class="text-xl font-bold">Equipos y canales de Teams</h2>
+  {% for membership in teams_memberships %}
+    <article class="mt-3 rounded-lg border p-3">
+      <h3 class="font-bold">{{ membership.workspace.display_name }}</h3>
+      <span class="rounded bg-blue-100 px-2 py-1">{{ membership.get_role_display }}</span>
+      · {{ membership.synced_at }}
+      <p>
+        Canales del equipo:
+        {% for channel in membership.workspace.channels.all %}
+          {{ channel.display_name }} ({{ channel.get_membership_type_display }})
+          {% if not forloop.last %}
+            ,
+          {% endif %}
+        {% empty %}
+          Sin canales observados
+        {% endfor %}
+      </p>
+      <p class="text-xs text-slate-600">
+        El catálogo de canales privados no acredita membresía individual en esos canales.
+      </p>
+    </article>
+  {% empty %}
+    <p>Sin pertenencias Teams observadas.</p>
+  {% endfor %}
+</section>

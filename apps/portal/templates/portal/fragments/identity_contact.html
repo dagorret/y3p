@@ -1,0 +1,53 @@
+{% comment %}
+#FPORTALHTML01-12125: Datos personales: formulario para operadores y lectura para perfiles de consulta.
+Destinos HTMX: #identity-card.
+La visibilidad acompaña permisos del servidor; ocultar controles no reemplaza su validación.
+{% endcomment %}
+
+<section class="rounded-xl bg-white p-6 shadow-sm">
+  <h2 class="text-xl font-bold">Datos filiatorios y contacto</h2>
+  {% if can_operate_daily %}
+    <form method="post"
+          hx-post="{% url 'portal:identity_contact' identity.pk %}"
+          hx-target="#identity-card"
+          hx-swap="outerHTML"
+          class="space-y-3">
+      {% csrf_token %}
+      {{ contact_form.as_p }}
+      <button class="rounded bg-blue-700 px-4 py-2 text-white">Guardar contacto</button>
+    </form>
+  {% else %}
+    <dl class="my-3 space-y-2">
+      <div>
+        <dt class="font-semibold">Correo personal</dt>
+        <dd>
+          {{ identity.personal_profile.personal_email|default:"Sin registrar" }}
+        </dd>
+      </div>
+      <div>
+        <dt class="font-semibold">Teléfono</dt>
+        <dd>
+          {{ identity.personal_profile.phone|default:"Sin registrar" }}
+        </dd>
+      </div>
+      <div>
+        <dt class="font-semibold">Ciudad</dt>
+        <dd>
+          {{ identity.personal_profile.city|default:"Sin registrar" }}
+        </dd>
+      </div>
+      <div>
+        <dt class="font-semibold">Domicilio</dt>
+        <dd>
+          {{ identity.personal_profile.address|default:"Sin registrar" }}
+        </dd>
+      </div>
+      <div>
+        <dt class="font-semibold">Nacimiento</dt>
+        <dd>
+          {{ identity.personal_profile.birth_date|default:"Sin registrar" }}
+        </dd>
+      </div>
+    </dl>
+  {% endif %}
+</section>

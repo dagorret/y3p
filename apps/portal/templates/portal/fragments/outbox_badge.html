@@ -1,1 +1,15 @@
-<span id="outbox-badge" role="status" aria-label="Eventos pendientes o fallidos" class="ml-2 rounded-full bg-amber-200 px-2 text-sm text-slate-900" hx-get="{{ outbox_badge_url }}" hx-trigger="every 10s" hx-swap="outerHTML">{{ outbox_count }}</span>
+{% comment %}
+#FPORTALHTML01-12129: Indicador diferido: cuenta pendientes y fallidos sin bloquear las consultas de la grilla.
+Anclaje: outbox-badge.
+La visibilidad acompaña permisos del servidor; ocultar controles no reemplaza su validación.
+{% endcomment %}
+
+<span id="outbox-badge"
+      role="status"
+      aria-label="Eventos pendientes o fallidos"
+      class="ml-2 rounded-full bg-amber-200 px-2 text-sm text-slate-900"
+      hx-get="{{ outbox_badge_url }}"
+      hx-trigger="every 10s"
+      hx-swap="outerHTML">
+  {{ outbox_count }}
+</span>

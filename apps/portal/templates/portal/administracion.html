@@ -1,7 +1,18 @@
 {% extends "portal/administracion/base_administracion.html" %}
-{% block title %}{{ scope_title }} · Portal Y3P{% endblock %}
+
+{% comment %}
+#FPORTALHTML01-12115: Consola del ámbito activo: filtros rápidos y grilla sin consultas remotas durante el renderizado.
+La composición hereda sus anclajes de la página contenedora.
+La visibilidad acompaña permisos del servidor; ocultar controles no reemplaza su validación.
+{% endcomment %}
+
+{% block title %}
+  {{ scope_title }} · Portal Y3P
+{% endblock %}
 {% block admin_content %}
   <h1 class="mb-3 text-2xl font-bold">{{ scope_title }}</h1>
+
   {% include "portal/fragments/student_filters.html" %}
+
   {% include "portal/fragments/administracion_results.html" %}
 {% endblock %}

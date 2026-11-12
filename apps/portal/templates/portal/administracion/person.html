@@ -1,6 +1,15 @@
 {% extends "portal/administracion/base_administracion.html" %}
-{% block title %}Ficha 360° · {{ identity }}{% endblock %}
+
+{% comment %}
+#FPORTALHTML01-12108: Página contenedora de la Ficha 360° y de sus actualizaciones parciales.
+La composición hereda sus anclajes de la página contenedora.
+La visibilidad acompaña permisos del servidor; ocultar controles no reemplaza su validación.
+{% endcomment %}
+
+{% block title %}
+  Ficha 360° · {{ identity }}
+{% endblock %}
 {% block admin_content %}
-<a href="{% url 'portal:administracion' %}" class="text-blue-700 underline">Volver a la búsqueda</a>
-{% include "portal/administracion/detail.html" %}
+  <a href="{% url 'portal:administracion' %}" class="text-blue-700 underline">Volver a la búsqueda</a>
+  {% include "portal/administracion/detail.html" %}
 {% endblock %}
