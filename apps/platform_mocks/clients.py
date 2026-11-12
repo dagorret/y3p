@@ -98,6 +98,28 @@ class MockGraphClient:
             f'{member.user.first_name} {member.user.last_name}'.strip(), member.is_owner)
             for member in MockTeamMember.objects.filter(team_id=team_id).select_related('user'))
 
+    def list_teams(self):
+        return [self.get_team(str(team.pk)) for team in MockTeam.objects.all()]
+
+    def get_team(self, team_id):
+        team = MockTeam.objects.get(pk=team_id)
+        return {'id': str(team.pk), 'displayName': team.display_name, 'description': team.description, 'mailNickname': ''}
+
+    def get_team_channels(self, team_id):
+        from .models import MockTeamChannel
+        channels = list(MockTeamChannel.objects.filter(team_id=team_id).order_by('channel_id'))
+        if channels:
+            return [{'id': channel.channel_id, 'displayName': channel.display_name, 'membershipType': channel.membership_type}
+                    for channel in channels]
+        return [{'id': f'{team_id}:general', 'displayName': 'General', 'membershipType': 'standard'}]
+
+    def get_user_joined_teams(self, user_id):
+        return [str(pk) for pk in MockTeamMember.objects.filter(user_id=user_id).values_list('team_id', flat=True)]
+
+    def get_user_state(self, upn):
+        user = MockAzureUser.objects.get(upn=upn)
+        return {'accountEnabled': user.is_active, 'passwordProfile': {'forceChangePasswordNextSignIn': user.password_profile_force_change}}
+
     def add_team_member(self, team_id, user_id_or_upn):
         user = MockAzureUser.objects.filter(upn=user_id_or_upn, is_active=True).first()
         if user is None:
@@ -131,6 +153,14 @@ class MockMoodleClient:
             (enrollment.group_name,) if enrollment.group_name else ())
             for enrollment in MockMoodleEnrollment.objects.filter(course_id=course_id, user__suspended=False).select_related('user'))
 
+    def list_courses(self):
+        return [{'id': course.pk, 'shortname': course.shortname, 'fullname': course.fullname,
+                 'category_name': 'Desarrollo', 'visible': True} for course in MockMoodleCourse.objects.all()]
+
+    def get_user_courses(self, user_id):
+        return [{'id': enrollment.course_id, 'shortname': enrollment.course.shortname}
+                for enrollment in MockMoodleEnrollment.objects.filter(user_id=user_id, user__suspended=False).select_related('course')]
+
     def enrol_user(self, user_id, course_id, role_id=5):
         MockMoodleEnrollment.objects.get_or_create(user_id=user_id, course_id=course_id, defaults={'role_id': role_id})
         return MoodleEnrollmentResult(user_id, course_id, role_id, True)
@@ -158,6 +188,10 @@ class MockMailerClient:
     def __init__(self):
         require_local_mocks()
         self.deliveries = []
+
+    def send_email(self, recipient, subject, text_body, html_body=None):
+        self.deliveries.append((recipient, subject, text_body))
+        return MailDeliveryResult(recipient, subject, True)
 
     def send_credentials_email(self, recipient, full_name, upn, password):
         self.deliveries.append((recipient, upn))

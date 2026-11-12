@@ -1,0 +1,21 @@
+{% extends "portal/administracion/base_administracion.html" %}
+{% block admin_content %}
+<h1 class="mb-4 text-2xl font-bold">Sincronización de catálogos</h1>
+<p class="mb-4">La agenda usa la hora local institucional. Programación inicial: sábados a la 01:00. Los catálogos se mantienen mediante Celery y su planificador Beat.</p>
+{% if feedback %}<div role="status" class="mb-4 rounded-lg p-3 {% if error %}bg-red-100{% else %}bg-emerald-100{% endif %}">{{ feedback }}</div>{% endif %}
+{% if invalid_form %}{% for field in invalid_form %}{% if field.errors %}<p class="text-red-700">{{ field.label }}: {{ field.errors }}</p>{% endif %}{% endfor %}{% endif %}
+<form method="post">{% csrf_token %}<button name="action" value="sync" class="mb-6 rounded bg-blue-700 px-4 py-2 text-white">Sincronizar Catálogos Ahora</button></form>
+<div class="grid gap-4 lg:grid-cols-2">{% for state in states %}<section class="rounded-lg border bg-white p-4">
+  <h2 class="text-xl font-bold">{{ state.get_source_display }}</h2>
+  <p>Resultado: {{ state.get_last_status_display|default:"Sin ejecuciones" }} · Elementos: {{ state.items_synced }}</p>
+  <p>Última sincronización: {{ state.last_run_at|default:"Sin ejecuciones" }}</p>
+  <p>Próxima ejecución: {{ state.next_run_at|default:"Pendiente" }}</p>
+  {% if state.run_token %}<p>Sincronización en curso.</p>{% endif %}
+  {% if state.last_error %}<p class="text-red-700">{{ state.last_error }}</p>{% endif %}
+  <form method="post">{% csrf_token %}{{ state.schedule_form.as_p }}<button class="rounded border px-4 py-2">Guardar programación</button></form>
+</section>{% endfor %}</div>
+<section class="mt-6 rounded-lg border bg-white p-4"><h2 class="text-xl font-bold">Equipos y canales del espejo</h2>
+<label>Equipo<select name="team_id" hx-get="{% url 'portal:catalog_channels' %}" hx-trigger="change" hx-target="#catalog-channels" hx-swap="outerHTML"><option value="">Seleccione un equipo</option>{% for team in catalog_teams %}<option value="{{ team.team_id }}">{{ team.display_name }} · {{ team.members_count }} miembros</option>{% endfor %}</select></label>
+{% include "portal/fragments/catalog_channels.html" %}
+</section>
+{% endblock %}

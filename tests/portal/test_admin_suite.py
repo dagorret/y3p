@@ -712,6 +712,8 @@ class StudentGridTests(TestCase):
             student_grid_context({'q': '66000000'})
         with self.assertNumQueries(7):
             context = student_grid_context({})
+        with self.assertNumQueries(7):
+            context = student_grid_context({'page_size': '100'})
         with self.assertNumQueries(0):
             render_to_string('portal/fragments/administracion_results.html', context)
 
@@ -752,7 +754,7 @@ class StudentGridTests(TestCase):
         response = self.post_bulk('credentials', ids=[self.ids[0], plain.pk])
         self.assertContains(response, 'no son alumnos')
         self.assertFalse(OutboxEvent.objects.filter(action='SUPPORT').exists())
-        self.assertContains(self.post_bulk('credentials', ids=self.ids), 'entre 1 y 50')
+        self.assertContains(self.post_bulk('credentials', ids=list(range(1, 202))), 'entre 1 y 200')
         self.assertContains(self.post_bulk('credentials', ids=[self.ids[0], self.ids[0]]), '1 solicitudes')
         self.assertEqual(OutboxEvent.objects.filter(action='SUPPORT').count(), 1)
 
@@ -789,6 +791,329 @@ class StudentGridTests(TestCase):
             self.assertEqual(run_saga(event_id, dry_run=True), 'SIMULATED')
             smtp.assert_not_called()
         self.assertFalse(MockAzureUser.objects.get(upn='a66000000@eco.unrc.edu.ar').password_profile_force_change)
+
+
+    def test_page_sizes_preserve_filters_and_validate_choices(self):
+        for size in (25, 100):
+            response = self.grid(page_size=size, career='2', q='Alumno')
+            self.assertEqual(response.context['page_obj'].paginator.per_page, size)
+            self.assertEqual(len(response.context['identities']), min(size, 51))
+            if size == 25:
+                self.assertIn('page_size=25', response.context['next_url'])
+                self.assertIn('career=2', response.context['next_url'])
+                self.assertIn('q=Alumno', response.context['next_url'])
+        for invalid in ('0', '999', 'texto'):
+            self.assertEqual(self.grid(page_size=invalid).context['page_obj'].paginator.per_page, 50)
+        response = self.client.get(reverse('portal:administracion'), {'page_size': 100})
+        self.assertContains(response, 'name="page_size"')
+        self.assertContains(response, 'value="100" selected')
+        self.assertContains(response, 'hx-push-url="true"')
+
+    def test_excel_has_same_filters_all_pages_and_read_permission(self):
+        from io import BytesIO
+        from openpyxl import load_workbook
+        url = reverse('portal:student_export')
+        params = {'career': '7', 'status': 'INGRE', 'health': 'green', 'q': 'Apellido', 'page_size': 25}
+        response = self.client.get(url, params)
+        self.assertEqual(response['Content-Type'], 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        self.assertIn('attachment;', response['Content-Disposition'])
+        book = load_workbook(BytesIO(b''.join(response.streaming_content)))
+        rows = list(book.active.values)
+        self.assertEqual(rows[0][1:4], ('DNI', 'Apellido y Nombre', 'UPN Institucional'))
+        self.assertEqual([row[1] for row in rows[1:]], ['66000051', '66000052'])
+        self.assertTrue(all(row[4:6] == ('7', 'INGRE') for row in rows[1:]))
+        response = self.client.get(url, {'page_size': 25, 'page': 2})
+        self.assertEqual(len(list(load_workbook(BytesIO(b''.join(response.streaming_content))).active.values)), 54)
+        self.client.force_login(self.jefe)
+        self.assertEqual(self.client.get(url).status_code, 200)
+        denied = get_user_model().objects.create_user('sin-lectura-excel')
+        self.client.force_login(denied)
+        self.assertEqual(self.client.get(url).status_code, 403)
+
+    def test_notification_outbox_substitutes_variables_and_dispatches_mail(self):
+        from apps.people.models import OutboxEvent
+        response = self.post_bulk('notification', subject='Aviso {document_number}',
+                                  body='Hola {full_name}, tu cuenta es {upn}. DNI: {document_number}.')
+        self.assertContains(response, '2 solicitudes registradas')
+        events = list(OutboxEvent.objects.filter(action='SUPPORT').order_by('identity_id'))
+        self.assertEqual(len(events), 2)
+        for event in events:
+            identity = event.identity
+            options = event.payload['support_options']
+            self.assertEqual(event.requested_by_id, self.operator.pk)
+            self.assertEqual(options['subject'], f'Aviso {identity.identifier}')
+            self.assertEqual(options['recipient'], identity.institutional_upn)
+            self.assertEqual(options['body'], f'Hola {identity.first_name} {identity.last_name}, tu cuenta es {identity.institutional_upn}. DNI: {identity.identifier}.')
+        self.assertEqual(len(self.process_support().deliveries), 2)
+
+    def test_notifications_reject_invalid_templates_and_roll_back_whole_batch(self):
+        from apps.people.models import OutboxEvent
+        for subject, body in (('', 'Mensaje'), ('Aviso', '{unknown}'), ('Aviso', '{upn.__class__}'),
+                              ('Aviso', '{upn:>100}'), ('Aviso', '{'), ('Aviso\nBcc: otro', 'Mensaje')):
+            self.post_bulk('notification', subject=subject, body=body)
+            self.assertFalse(OutboxEvent.objects.filter(action='SUPPORT').exists())
+        Identity.objects.filter(pk=self.ids[7]).update(institutional_upn=None)
+        self.post_bulk('notification', subject='Aviso', body='Hola {full_name}')
+        self.assertFalse(OutboxEvent.objects.filter(action='SUPPORT').exists())
+        self.client.force_login(self.jefe)
+        self.assertEqual(self.post_bulk('notification', subject='Aviso', body='Mensaje').status_code, 403)
+
+    def test_seed_command_is_idempotent_and_matches_health_distribution(self):
+        from collections import Counter
+        from io import StringIO
+        from django.core.management import call_command
+        from apps.people.models import OutboxEvent
+        from apps.platform_mocks.models import MockAzureUser, MockMoodleEnrollment
+        from apps.portal.student_grid import student_queryset
+        output = StringIO()
+        for _ in range(2):
+            call_command('seed_dev_students', count=60, stdout=output)
+        students = Identity.objects.filter(metadata__seed='seed_dev_students')
+        self.assertEqual(students.count(), 60)
+        self.assertEqual(Affiliation.objects.filter(identity__in=students).count(), 60)
+        self.assertEqual(MockAzureUser.objects.filter(upn__in=students.values('institutional_upn')).count(), 60)
+        self.assertEqual(MockMoodleEnrollment.objects.filter(course__shortname__in=['9040', '9041', '9042']).count(), 60)
+        self.assertEqual(OutboxEvent.objects.filter(payload={'seed': 'seed_dev_students'}).count(), 60)
+        self.assertEqual(Counter(student_queryset({}).filter(pk__in=students).values_list('health', flat=True)),
+                         {'green': 30, 'yellow': 12, 'orange': 12, 'red': 6})
+        self.assertIn('Semilla sincronizada: 60 alumnos', output.getvalue())
+
+    @override_settings(LUCY_M365_SKU_ID='')
+    def test_seed_uses_shared_mock_sku_without_configuration(self):
+        from io import StringIO
+        from django.core.management import call_command
+        from apps.portal.student_grid import student_queryset
+        call_command('seed_dev_students', count=10, stdout=StringIO())
+        self.assertEqual(student_queryset({'health': 'green'}).filter(metadata__seed='seed_dev_students').count(), 5)
+
+    def test_excel_keeps_untrusted_values_as_text(self):
+        from io import BytesIO
+        from openpyxl import load_workbook
+        Identity.objects.filter(pk=self.ids[0]).update(last_name='=1+1')
+        response = self.client.get(reverse('portal:student_export'), {'q': '66000000'})
+        sheet = load_workbook(BytesIO(b''.join(response.streaming_content))).active
+        self.assertEqual(sheet['C2'].data_type, 's')
+        self.assertEqual(sheet['C2'].value, '=1+1, Alumno')
+
+    def test_failed_notification_is_retried_without_claiming_success(self):
+        from apps.people.models import OutboxEvent
+        from apps.provisioning.dispatcher import claim_events
+        from apps.provisioning.orchestrator import run_saga
+        self.post_bulk('notification', ids=[self.ids[0]], subject='Aviso', body='Mensaje')
+        event_id = claim_events()[0]
+        mailer = Mock(dry_run=False)
+        mailer.send_email.return_value = MailDeliveryResult('alumno@example.test', 'Aviso', False)
+        with patch('apps.people.support.build_mailer', return_value=mailer):
+            self.assertEqual(run_saga(event_id, dry_run=False), 'RETRY_SCHEDULED')
+        self.assertEqual(OutboxEvent.objects.get(pk=event_id).status, 'RETRY_SCHEDULED')
+
+    def test_seed_invalid_count_and_disabled_mocks_do_not_write(self):
+        from django.core.management import call_command, CommandError
+        for count in (0, -1, 10001):
+            with self.assertRaises(CommandError):
+                call_command('seed_dev_students', count=count)
+        with self.settings(ENABLE_LOCAL_MOCKS=False), self.assertRaises(CommandError):
+            call_command('seed_dev_students', count=60)
+        self.assertFalse(Identity.objects.filter(metadata__seed='seed_dev_students').exists())
+
+
+    def test_formula_parser_compiles_without_queries_and_combines_conditions(self):
+        from apps.portal.query_parser import parse_query
+        from apps.portal.student_grid import student_queryset
+        from apps.people.models import OutboxEvent
+        with self.assertNumQueries(0):
+            criteria = parse_query('carrera:CONTADOR AND salud:ROJO AND vence:vencido')
+        self.assertTrue(criteria.identity.children)
+        self.assertTrue(criteria.affiliation.children)
+        affiliation = Affiliation.objects.get(identity_id=self.ids[2])
+        affiliation.reference = 'Contador Público'
+        affiliation.save()
+        OutboxEvent.objects.create(identity_id=self.ids[2], affiliation=affiliation, action='PROVISION', status='FAILED')
+        result = student_queryset({'formula': 'carrera:CONTADOR AND salud:ROJO AND vence:vencido'})
+        self.assertEqual(list(result.values_list('pk', flat=True)), [self.ids[2]])
+        self.assertEqual(list(student_queryset({'formula': 'carrera:"Contador Público" AND saga:INGRE'}).values_list('pk', flat=True)), [self.ids[2]])
+
+    def test_formula_career_saga_and_ttl_must_match_same_affiliation(self):
+        from datetime import timedelta
+        from apps.portal.student_grid import student_queryset
+        profile = ProfileTypeDefinition.objects.get(code='ALUMNO')
+        pre = SagaStatusDefinition.objects.get(profile_type=profile, code='PRE')
+        Affiliation.objects.create(identity_id=self.ids[0], profile_type=profile, current_status=pre,
+                                   reference='Contador', expires_at=timezone.now() - timedelta(days=1))
+        for formula in ('carrera:Contador AND saga:INGRE', 'carrera:2 AND vence:vencido'):
+            self.assertFalse(student_queryset({'formula': formula, 'q': '66000000'}).exists())
+        self.assertFalse(student_queryset({'formula': 'saga:PRE', 'career': '2', 'q': '66000000'}).exists())
+
+    def test_formula_boolean_dni_and_ttl_window_semantics(self):
+        from datetime import timedelta
+        from apps.portal.student_grid import student_queryset
+        now = timezone.now()
+        Affiliation.objects.update(expires_at=now + timedelta(days=45))
+        Affiliation.objects.filter(identity_id=self.ids[0]).update(expires_at=now + timedelta(days=5))
+        params = {'formula': 'dni:6600000 AND licencia:SI AND moodle:SI AND vence:<30d'}
+        self.assertEqual(list(student_queryset(params, now=now).values_list('pk', flat=True)), [self.ids[0]])
+        self.assertEqual(list(student_queryset({'formula': 'dni:66000005 AND licencia:NO'}).values_list('pk', flat=True)), [self.ids[5]])
+        self.assertEqual(list(student_queryset({'formula': 'dni:66000006 AND moodle:NO'}).values_list('pk', flat=True)), [self.ids[6]])
+        Affiliation.objects.filter(identity_id=self.ids[0]).update(expires_at=None)
+        self.assertFalse(student_queryset(params, now=now).exists())
+
+    def test_formula_invalid_keys_syntax_and_injection_are_controlled(self):
+        from apps.portal.query_parser import QuerySyntaxError, parse_query
+        invalid = ('password:secreto', 'identity__password:x', 'dni:1 OR dni:2',
+                   'dni:1 AND', 'AND dni:1', 'dni:', 'carrera:"sin cierre',
+                   'dni:1;DROP', 'salud:AZUL', 'licencia:TRUE', 'moodle:TALVEZ',
+                   'vence:<0d', 'vence:<9999d', 'vence:mañana', 'saga:PRE;DROP',
+                   'dni:1 AND ' * 31 + 'dni:1', 'x' * 2001)
+        for expression in invalid:
+            with self.subTest(expression=expression), self.assertRaises(QuerySyntaxError):
+                parse_query(expression)
+            response = self.grid(formula=expression)
+            self.assertEqual(response.status_code, 200)
+            self.assertContains(response, 'role="alert"')
+            self.assertEqual(response.context['page_obj'].paginator.count, 0)
+        response = self.client.get(reverse('portal:student_export'), {'formula': 'password:secreto'})
+        self.assertEqual(response.status_code, 400)
+
+    def test_formula_preserves_seven_queries_and_zero_during_render(self):
+        from django.template.loader import render_to_string
+        from apps.portal.student_grid import student_grid_context
+        from apps.people.permissions import ADMINISTRATE_STUDENT_CRITICAL, has_portal_permission
+        has_portal_permission(self.operator, ADMINISTRATE_STUDENT_CRITICAL)
+        for expression in ('dni:66000000', 'dni:6600 AND licencia:SI', ''):
+            with self.assertNumQueries(7):
+                context = student_grid_context({'formula': expression, 'page_size': '100'}, user=self.operator)
+            with self.assertNumQueries(0):
+                render_to_string('portal/fragments/administracion_results.html', context)
+
+    def test_snippet_create_apply_htmx_and_private_shared_isolation(self):
+        from apps.portal.models import AdminQuerySnippet
+        create = reverse('portal:snippet_create')
+        response = self.client.post(create, {'snippet_name': 'Mis ingresantes', 'formula': 'saga:INGRE',
+                                            'career': '2', 'page_size': '25'}, HTTP_HX_REQUEST='true')
+        self.assertContains(response, 'Vista guardada: Mis ingresantes.')
+        private = AdminQuerySnippet.objects.get(name='Mis ingresantes')
+        self.assertEqual(private.created_by_id, self.operator.pk)
+        self.assertEqual(private.filter_params, {'career': '2', 'page_size': '25'})
+        self.assertFalse(private.is_shared)
+        self.client.post(create, {'snippet_name': 'Compartida de soporte', 'formula': 'salud:ROJO', 'is_shared': 'on'})
+        shared = AdminQuerySnippet.objects.get(name='Compartida de soporte')
+        other = get_user_model().objects.create_user('operador-aislado')
+        other.groups.add(Group.objects.get(name='adm_alumnos_rol_operador'))
+        self.client.force_login(other)
+        response = self.client.get(reverse('portal:administracion'))
+        self.assertNotContains(response, 'Mis ingresantes')
+        self.assertContains(response, 'Compartida de soporte')
+        self.assertNotContains(self.grid(snippet=private.pk), 'Mis ingresantes')
+        self.assertContains(self.grid(snippet=private.pk), 'no está disponible')
+        self.assertEqual(self.grid(snippet=private.pk).context['page_obj'].paginator.count, 0)
+        response = self.grid(snippet=shared.pk)
+        self.assertEqual(response.context['formula'], 'salud:ROJO')
+        self.assertEqual(response.context['page_obj'].paginator.count, 2)
+        self.client.force_login(self.operator)
+        response = self.grid(snippet=private.pk)
+        self.assertNotContains(response, '<html')
+        self.assertContains(response, 'hx-swap-oob="outerHTML"')
+        self.assertContains(response, 'value="saga:INGRE"')
+        self.assertEqual(response.context['page_obj'].paginator.per_page, 25)
+        self.assertEqual(response.context['page_obj'].paginator.count, 50)
+        self.assertIn('formula=saga%3AINGRE', response.context['next_url'])
+        self.assertIn('career=2', response.context['next_url'])
+
+    def test_htmx_only_refreshes_filter_panel_when_applying_snippet(self):
+        response = self.grid(q='Alumno', formula='saga:INGRE')
+        self.assertNotContains(response, 'hx-swap-oob="outerHTML"')
+        self.assertContains(self.grid(snippet=''), 'hx-swap-oob="outerHTML"')
+
+    def test_snippet_delete_requires_owner_or_administrator_and_post_csrf(self):
+        from apps.portal.models import AdminQuerySnippet
+        snippet = AdminQuerySnippet.objects.create(name='Privada borrable', query_expression='dni:6600', created_by=self.operator)
+        url = reverse('portal:snippet_delete', args=[snippet.pk])
+        other = get_user_model().objects.create_user('otro-operador-snippets')
+        other.groups.add(Group.objects.get(name='adm_alumnos_rol_operador'))
+        self.client.force_login(other)
+        self.assertEqual(self.client.post(url).status_code, 403)
+        self.assertTrue(AdminQuerySnippet.objects.filter(pk=snippet.pk).exists())
+        self.client.force_login(self.jefe)
+        self.assertEqual(self.client.post(url).status_code, 403)
+        self.assertEqual(self.client.post(reverse('portal:snippet_create'), {'snippet_name': 'Denegado'}).status_code, 403)
+        self.client.force_login(self.operator)
+        self.assertEqual(self.client.get(url).status_code, 405)
+        csrf = Client(enforce_csrf_checks=True)
+        csrf.force_login(self.operator)
+        self.assertEqual(csrf.post(url).status_code, 403)
+        self.assertEqual(self.client.post(url).status_code, 200)
+        snippet = AdminQuerySnippet.objects.create(name='Otra privada', created_by=other)
+        self.client.force_login(self.admin)
+        self.assertEqual(self.client.post(reverse('portal:snippet_delete', args=[snippet.pk])).status_code, 200)
+
+    def test_snippet_rejects_invalid_formula_name_and_persisted_filter_schema(self):
+        from apps.portal.models import AdminQuerySnippet
+        from apps.portal.snippet_services import create_snippet
+        from django.core.exceptions import ValidationError
+        for name, expression in (('', 'dni:1'), ('Nombre', 'clave:inyeccion')):
+            response = self.client.post(reverse('portal:snippet_create'), {'snippet_name': name, 'formula': expression})
+            self.assertContains(response, 'role="status"')
+            self.assertFalse(AdminQuerySnippet.objects.exists())
+        with self.assertRaises(ValidationError):
+            create_snippet(user=self.operator, name='Inseguro', expression='', filter_params={'identity__password': 'x'})
+        broken = AdminQuerySnippet.objects.create(name='Esquema inválido', created_by=self.operator, filter_params={'snippet': '1'})
+        self.assertContains(self.grid(snippet=broken.pk), 'filtros complementarios inválidos')
+
+    def test_formula_and_snippet_excel_match_grid_and_pagination(self):
+        from io import BytesIO
+        from openpyxl import load_workbook
+        from apps.portal.models import AdminQuerySnippet
+        snippet = AdminQuerySnippet.objects.create(name='Errores', created_by=self.operator,
+            query_expression='salud:ROJO AND saga:INGRE', filter_params={'career': '2', 'page_size': '25'})
+        expected = [identity.identifier for identity in self.grid(snippet=snippet.pk).context['identities']]
+        response = self.client.get(reverse('portal:student_export'), {'snippet': snippet.pk})
+        rows = list(load_workbook(BytesIO(b''.join(response.streaming_content))).active.values)
+        self.assertEqual([row[1] for row in rows[1:]], expected)
+        self.assertEqual(len(expected), 2)
+
+
+    def test_main_screen_is_compact_builder_route_and_numbered_deterministic_pages(self):
+        response = self.client.get(reverse('portal:administracion'), {'page_size': 25})
+        self.assertNotContains(response, 'Filtro Avanzado / Fórmula')
+        self.assertNotContains(response, 'Guardar como Snippet')
+        self.assertNotContains(response, 'Administrar vistas guardadas')
+        content = response.content.decode()
+        self.assertGreater(content.index('Vistas Guardadas (Snippets)'), content.index('aria-label="Paginación de alumnos"'))
+        self.assertContains(response, 'aria-current="page"')
+        self.assertContains(response, 'page_size=25&amp;page=3')
+        ordered = list(Identity.objects.filter(pk__in=self.ids).order_by('last_name', 'first_name', 'id').values_list('pk', flat=True))
+        first = self.grid(page_size=25, q='Alumno', career='2')
+        second = self.grid(page_size=25, q='Alumno', career='2', page=2)
+        self.assertEqual([i.pk for i in first.context['identities']], ordered[:25])
+        self.assertFalse({i.pk for i in first.context['identities']} & {i.pk for i in second.context['identities']})
+        self.assertIn('career=2', first.context['next_url'])
+        builder = self.client.get(reverse('portal:query_builder'), {'formula': 'saga:INGRE'})
+        self.assertContains(builder, 'Filtro Avanzado / Fórmula')
+        self.assertContains(builder, 'Vista previa de alumnos')
+        self.assertContains(builder, 'Guardar como Snippet')
+        self.assertEqual(builder.context['page_obj'].paginator.count, 52)
+        fragment = self.client.get(reverse('portal:query_builder'), {'formula': 'saga:PRE'}, HTTP_HX_REQUEST='true')
+        self.assertContains(fragment, 'id="query-builder"')
+        self.assertNotContains(fragment, '<html')
+        saved = self.client.post(reverse('portal:snippet_create'), {'builder_mode': '1', 'snippet_name': 'Vista del constructor', 'formula': 'saga:PRE'}, HTTP_HX_REQUEST='true')
+        self.assertContains(saved, 'id="query-builder"')
+        self.assertContains(saved, 'Vista guardada: Vista del constructor')
+
+    def test_elided_page_range_and_id_tiebreaker_are_deterministic(self):
+        profile = ProfileTypeDefinition.objects.get(code='ALUMNO')
+        status = SagaStatusDefinition.objects.get(profile_type=profile, code='INGRE')
+        people = Identity.objects.bulk_create([
+            Identity(category='FISICA', identifier=f'999{index:05}', first_name='Mismo', last_name='Apellido')
+            for index in range(450)
+        ])
+        Affiliation.objects.bulk_create([Affiliation(identity=identity, profile_type=profile, current_status=status, reference='2') for identity in people])
+        response = self.grid(page_size=25, page=10)
+        page = response.context['page_obj']
+        self.assertEqual([item['number'] for item in response.context['page_links']], list(page.paginator.get_elided_page_range(10, on_each_side=2, on_ends=1)))
+        self.assertTrue(any(item['ellipsis'] for item in response.context['page_links']))
+        ids = [identity.pk for identity in response.context['identities']]
+        self.assertEqual(ids, sorted(ids))
+        self.assertEqual(ids, [identity.pk for identity in self.grid(page_size=25, page=10).context['identities']])
 
 
 @skipUnless(apps.is_installed('apps.platform_mocks'), 'Requiere platform_mocks.')
@@ -887,3 +1212,351 @@ class TeamsConsoleTests(TestCase):
         self.assertIsNone(team.member_count)
         self.assertIsNone(team.moodle_count)
         self.assertEqual(team.parity, 'Sin observación / mapeo')
+
+
+@skipUnless(apps.is_installed('apps.platform_mocks'), 'Requiere platform_mocks.')
+@override_settings(ENABLE_LOCAL_MOCKS=True, LUCY_DRY_RUN=False, LUCY_M365_SKU_ID='mirror-a1')
+class CatalogMirrorsTests(TestCase):
+    """Espejos relacionales, reemplazo completo, agenda y refresco puntual autorizado."""
+
+    @classmethod
+    def setUpTestData(cls):
+        from apps.platform_mocks.models import MockAzureUser, MockTeam, MockTeamMember, MockMoodleUser, MockMoodleCourse, MockMoodleEnrollment
+        cls.operator = get_user_model().objects.create_user('mirror-operador')
+        cls.operator.groups.add(Group.objects.get(name='adm_alumnos_rol_operador'))
+        cls.admin = get_user_model().objects.create_user('mirror-admin')
+        cls.admin.groups.add(Group.objects.get(name='adm_alumnos_rol_admin'))
+        cls.reader = get_user_model().objects.create_user('mirror-jefe')
+        cls.reader.groups.add(Group.objects.get(name='adm_alumnos_rol_jefe'))
+        cls.identity = Identity.objects.create(category='FISICA', identifier='88111111', first_name='Alumno', last_name='Espejo', institutional_upn='a88111111@eco.unrc.edu.ar')
+        profile = ProfileTypeDefinition.objects.get(code='ALUMNO')
+        Affiliation.objects.create(identity=cls.identity, profile_type=profile, current_status=SagaStatusDefinition.objects.get(profile_type=profile, code='INGRE'), reference='2')
+        cls.azure = MockAzureUser.objects.create(upn=cls.identity.institutional_upn, first_name='Alumno', last_name='Espejo', assigned_sku='mirror-a1', password_profile_force_change=False, last_activity_at=timezone.now())
+        cls.owner = MockAzureUser.objects.create(upn='docente@eco.unrc.edu.ar', first_name='Docente')
+        cls.guest = MockAzureUser.objects.create(upn='invitado@example.test', first_name='Invitado')
+        cls.team1 = MockTeam.objects.create(display_name='Equipo espejo primero', owner=cls.owner)
+        cls.team2 = MockTeam.objects.create(display_name='Equipo espejo segundo', owner=cls.azure)
+        MockTeamMember.objects.create(team=cls.team1, user=cls.azure)
+        MockTeamMember.objects.create(team=cls.team1, user=cls.owner, is_owner=True)
+        MockTeamMember.objects.create(team=cls.team1, user=cls.guest)
+        MockTeamMember.objects.create(team=cls.team2, user=cls.azure, is_owner=True)
+        cls.moodle_user = MockMoodleUser.objects.create(username=cls.azure.upn, email=cls.azure.upn, first_name='Alumno', last_name='Espejo')
+        cls.course = MockMoodleCourse.objects.create(shortname='ESPEJO-I1', fullname='Curso espejo')
+        MockMoodleEnrollment.objects.create(user=cls.moodle_user, course=cls.course)
+
+    def setUp(self):
+        from apps.platform_mocks.clients import MockGraphClient, MockMoodleClient
+        self.graph, self.moodle = MockGraphClient(), MockMoodleClient()
+        self.client.force_login(self.operator)
+        self.enterContext(patch('requests.sessions.Session.request', side_effect=AssertionError('No consultar la red en pruebas con mocks.')))
+
+    def sync(self, **kwargs):
+        from apps.integrations.catalogs import sync_external_catalogs
+        return sync_external_catalogs(graph=self.graph, moodle=self.moodle, **kwargs)
+
+    def test_relational_membership_teams_counts_guests_and_uniqueness(self):
+        from django.db import IntegrityError, transaction
+        from django.db.models import Count
+        from apps.integrations.models import TeamsMemberMirror, TeamsWorkspaceMirror
+        self.assertEqual(self.sync(), {'TEAMS': 'SUCCEEDED', 'MOODLE': 'SUCCEEDED'})
+        first = TeamsWorkspaceMirror.objects.get(team_id=str(self.team1.pk))
+        self.assertTrue(TeamsMemberMirror.objects.filter(workspace=first, identity=self.identity).exists())
+        self.assertEqual(set(self.identity.teams_memberships.values_list('workspace__team_id', flat=True)), {str(self.team1.pk), str(self.team2.pk)})
+        self.assertEqual(TeamsWorkspaceMirror.objects.filter(members_count=1).count(), 1)
+        self.assertEqual(TeamsWorkspaceMirror.objects.annotate(total=Count('members')).filter(total=1).count(), 1)
+        self.assertIsNone(TeamsMemberMirror.objects.get(upn=self.guest.upn).identity_id)
+        self.assertEqual((first.owners_count, first.members_count), (1, 3))
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            TeamsMemberMirror.objects.create(workspace=first, upn=self.azure.upn, azure_user_id=str(self.azure.pk), role='member', synced_at=timezone.now())
+
+    def test_sync_is_idempotent_prunes_removed_members_and_channels_and_records_state(self):
+        from apps.platform_mocks.models import MockTeamMember
+        from apps.integrations.models import TeamsMemberMirror, TeamsWorkspaceMirror, TeamsChannelMirror, MoodleCourseMirror, CatalogSyncState
+        original = self.graph.get_team_channels
+        with patch.object(self.graph, 'get_team_channels', side_effect=lambda team_id: original(team_id) + [
+            {'id': team_id + ':privado', 'displayName': 'Comisión privada', 'membershipType': 'private'}]):
+            self.sync()
+        keys = list(TeamsMemberMirror.objects.order_by('pk').values_list('pk', flat=True))
+        self.sync()
+        self.assertEqual(list(TeamsMemberMirror.objects.order_by('pk').values_list('pk', flat=True)), keys)
+        self.assertEqual(TeamsChannelMirror.objects.count(), 2)
+        self.assertEqual(MoodleCourseMirror.objects.get(course_id=self.course.pk).enrolled_count, 1)
+        MockTeamMember.objects.filter(team=self.team1, user__in=[self.owner, self.guest]).delete()
+        self.sync()
+        first = TeamsWorkspaceMirror.objects.get(team_id=str(self.team1.pk))
+        self.assertEqual((first.members_count, first.owners_count), (1, 0))
+        self.assertEqual(TeamsMemberMirror.objects.count(), 2)
+        for state in CatalogSyncState.objects.all():
+            self.assertEqual(state.last_status, 'SUCCEEDED')
+            self.assertIsNotNone(state.last_run_at)
+            self.assertGreater(state.next_run_at, state.last_run_at)
+            self.assertIsNone(state.run_token)
+        self.assertEqual(CatalogSyncState.objects.get(source='TEAMS').items_synced, 2)
+
+    def test_sync_links_identity_by_azure_identifier_when_upn_changed(self):
+        from apps.people.models import DigitalAccount
+        from apps.integrations.models import TeamsMemberMirror
+        DigitalAccount.objects.create(identity=self.identity, platform='TEAMS', account_identifier='cuenta-anterior', observations={'azure_user_id': str(self.azure.pk)})
+        Identity.objects.filter(pk=self.identity.pk).update(institutional_upn='nuevo@eco.unrc.edu.ar')
+        self.sync()
+        self.assertEqual(TeamsMemberMirror.objects.filter(identity=self.identity).count(), 2)
+
+    def test_failed_origin_preserves_previous_snapshot_and_other_origin_succeeds(self):
+        from apps.integrations.models import TeamsMemberMirror, CatalogSyncState
+        from apps.integrations.exceptions import IntegrationError
+        self.sync()
+        members = list(TeamsMemberMirror.objects.values_list('pk', 'upn'))
+        with patch.object(self.graph, 'get_team_members', side_effect=IntegrationError('Fallo remoto de prueba')):
+            self.assertEqual(self.sync(), {'TEAMS': 'FAILED', 'MOODLE': 'SUCCEEDED'})
+        self.assertEqual(list(TeamsMemberMirror.objects.values_list('pk', 'upn')), members)
+        state = CatalogSyncState.objects.get(source='TEAMS')
+        self.assertEqual(state.last_status, 'FAILED')
+        self.assertIn('IntegrationError', state.last_error)
+        self.assertIsNone(state.run_token)
+
+    def test_concurrent_lease_and_expired_lease_recovery(self):
+        import uuid
+        from datetime import timedelta
+        from apps.integrations.models import CatalogSyncState
+        CatalogSyncState.objects.filter(source='TEAMS').update(run_token=uuid.uuid4(), lock_expires_at=timezone.now() + timedelta(minutes=10))
+        with patch.object(self.graph, 'list_teams') as remote:
+            self.assertEqual(self.sync(sources=['TEAMS']), {'TEAMS': 'OMITIDO'})
+            remote.assert_not_called()
+        CatalogSyncState.objects.filter(source='TEAMS').update(lock_expires_at=timezone.now() - timedelta(seconds=1))
+        self.assertEqual(self.sync(sources=['TEAMS']), {'TEAMS': 'SUCCEEDED'})
+
+    def test_late_worker_cannot_overwrite_another_lease(self):
+        import uuid
+        from apps.integrations.models import CatalogSyncState, TeamsWorkspaceMirror
+        original = self.graph.list_teams
+        next_token = uuid.uuid4()
+        def replace_lease():
+            CatalogSyncState.objects.filter(source='TEAMS').update(run_token=next_token)
+            return original()
+        with patch.object(self.graph, 'list_teams', side_effect=replace_lease):
+            self.assertEqual(self.sync(sources=['TEAMS']), {'TEAMS': 'OMITIDO'})
+        self.assertFalse(TeamsWorkspaceMirror.objects.exists())
+        self.assertEqual(CatalogSyncState.objects.get(source='TEAMS').run_token, next_token)
+
+    def test_scheduler_respects_saturday_local_time_and_only_due_origins(self):
+        from datetime import datetime, timedelta
+        from apps.integrations.catalogs import next_scheduled_run, sync_due_catalogs
+        from apps.integrations.models import CatalogSyncState
+        state = CatalogSyncState.objects.get(source='TEAMS')
+        before = timezone.make_aware(datetime(2026, 11, 14, 0, 30))
+        expected = timezone.make_aware(datetime(2026, 11, 14, 1, 0))
+        self.assertEqual(next_scheduled_run(state, now=before), expected)
+        self.assertEqual(next_scheduled_run(state, now=expected), expected + timedelta(days=7))
+        CatalogSyncState.objects.update(next_run_at=timezone.now() + timedelta(days=1))
+        CatalogSyncState.objects.filter(source='TEAMS').update(next_run_at=timezone.now() - timedelta(seconds=1))
+        with patch('apps.integrations.catalogs.sync_external_catalogs', return_value={'TEAMS': 'SUCCEEDED'}) as task:
+            self.assertEqual(sync_due_catalogs(), {'TEAMS': 'SUCCEEDED'})
+            task.assert_called_once_with(sources=['TEAMS'])
+
+    def test_sync_control_requires_admin_enqueues_task_and_edits_schedule(self):
+        from apps.integrations.models import CatalogSyncState
+        url = reverse('portal:catalog_sync')
+        self.assertEqual(self.client.get(url).status_code, 403)
+        self.assertEqual(self.client.post(url, {'action': 'sync'}).status_code, 403)
+        self.client.force_login(self.admin)
+        self.assertContains(self.client.get(url), 'Sincronizar Catálogos Ahora')
+        with patch('apps.integrations.tasks.sync_catalogs_task.delay') as enqueue:
+            self.assertContains(self.client.post(url, {'action': 'sync'}), 'encolada')
+            enqueue.assert_called_once_with()
+        self.assertContains(self.client.post(url, {'source': 'TEAMS', 'schedule_weekday': '0', 'schedule_hour': '08:30'}), 'Programación semanal actualizada')
+        state = CatalogSyncState.objects.get(source='TEAMS')
+        self.assertEqual((state.schedule_weekday, state.schedule_hour.hour, state.schedule_hour.minute), (0, 8, 30))
+        self.assertEqual(timezone.localtime(state.next_run_at).weekday(), 0)
+        self.assertContains(self.client.post(url, {'source': 'TEAMS', 'schedule_weekday': '7', 'schedule_hour': '08:30'}), 'no es válida')
+
+    def test_individual_refresh_updates_accounts_memberships_and_htmx_badges(self):
+        from apps.platform_mocks.models import MockTeamMember, MockMoodleEnrollment
+        from apps.integrations.models import TeamsMemberMirror, TeamsWorkspaceMirror
+        from apps.people.models import DigitalAccount
+        self.sync()
+        MockTeamMember.objects.filter(team=self.team1, user=self.azure).delete()
+        MockMoodleEnrollment.objects.filter(user=self.moodle_user).delete()
+        url = reverse('portal:identity_platform_refresh', args=[self.identity.pk])
+        with patch('apps.integrations.catalogs.catalog_clients', return_value=(self.graph, self.moodle)):
+            response = self.client.post(url, HTTP_HX_REQUEST='true')
+        self.assertContains(response, 'Estado de Teams y Moodle actualizado')
+        self.assertNotContains(response, '<html')
+        self.assertContains(response, self.team2.display_name)
+        self.assertNotContains(response, self.team1.display_name)
+        self.assertEqual(TeamsMemberMirror.objects.filter(identity=self.identity).count(), 1)
+        self.assertEqual(TeamsWorkspaceMirror.objects.get(team_id=str(self.team1.pk)).members_count, 2)
+        self.assertEqual(DigitalAccount.objects.get(identity=self.identity, platform='MOODLE').observations['courses'], [])
+        self.assertTrue(DigitalAccount.objects.get(identity=self.identity, platform='TEAMS').observations['license_assigned'])
+        self.assertContains(self.client.get(reverse('portal:identity360_plural', args=[self.identity.pk])), 'Actualizar estado (Teams / Moodle)')
+
+    def test_individual_refresh_is_post_only_requires_permission_csrf_and_preserves_on_failure(self):
+        from apps.integrations.exceptions import IntegrationError
+        from apps.people.models import DigitalAccount
+        url = reverse('portal:identity_platform_refresh', args=[self.identity.pk])
+        self.assertEqual(self.client.get(url).status_code, 405)
+        csrf = Client(enforce_csrf_checks=True)
+        csrf.force_login(self.operator)
+        self.assertEqual(csrf.post(url).status_code, 403)
+        self.client.force_login(self.reader)
+        self.assertEqual(self.client.post(url).status_code, 403)
+        self.client.force_login(self.operator)
+        with patch.object(self.moodle, 'get_user_courses', side_effect=IntegrationError('Fallo de lectura')), patch('apps.integrations.catalogs.catalog_clients', return_value=(self.graph, self.moodle)):
+            self.assertContains(self.client.post(url), 'no completó la operación')
+        self.assertFalse(DigitalAccount.objects.filter(identity=self.identity).exists())
+
+    def test_selectors_use_relational_catalog_without_remote_get(self):
+        self.sync()
+        self.client.force_login(self.admin)
+        response = self.client.get(reverse('portal:catalog_channels'), {'team_id': str(self.team1.pk)})
+        self.assertContains(response, 'General')
+        self.assertContains(self.client.get(reverse('portal:teams')), self.team1.display_name)
+        self.assertContains(self.client.get(reverse('portal:identity360', args=[self.identity.pk])), self.course.shortname)
+
+    def test_full_catalog_prunes_removed_workspaces_and_courses(self):
+        from apps.platform_mocks.models import MockTeam, MockMoodleCourse
+        from apps.integrations.models import TeamsWorkspaceMirror, MoodleCourseMirror, TeamsMemberMirror
+        self.sync()
+        MockTeam.objects.filter(pk=self.team1.pk).delete()
+        MockMoodleCourse.objects.filter(pk=self.course.pk).delete()
+        self.assertEqual(self.sync(), {'TEAMS': 'SUCCEEDED', 'MOODLE': 'SUCCEEDED'})
+        self.assertFalse(TeamsWorkspaceMirror.objects.filter(team_id=str(self.team1.pk)).exists())
+        self.assertFalse(MoodleCourseMirror.objects.exists())
+        self.assertEqual(TeamsMemberMirror.objects.count(), 1)
+
+    def test_dry_run_catalog_never_purges_confirmed_mirrors(self):
+        from apps.integrations.models import TeamsWorkspaceMirror, CatalogSyncState
+        self.sync()
+        self.graph.dry_run = True
+        self.assertEqual(self.sync(sources=['TEAMS']), {'TEAMS': 'FAILED'})
+        self.assertEqual(TeamsWorkspaceMirror.objects.count(), 2)
+        self.assertEqual(CatalogSyncState.objects.get(source='TEAMS').last_status, 'FAILED')
+
+
+class CatalogClientContractTests(TestCase):
+    """Contratos de lectura completa y continuaciones Graph restringidas al mismo recurso."""
+
+    def test_graph_catalog_and_joined_teams_read_all_pages(self):
+        from apps.integrations.services.graph import MicrosoftGraphClient
+        graph = MicrosoftGraphClient()
+        for method, path in ((graph.list_teams, 'groups'), (lambda: graph.get_team_channels('equipo'), 'teams/equipo/channels'),
+                             (lambda: graph.get_user_joined_teams('usuario'), 'users/usuario/joinedTeams')):
+            replies = [Mock(json=lambda: {'value': [{'id': 'primero'}], '@odata.nextLink': f'{graph.graph_base_url}/{path}?$skiptoken=segunda'}),
+                       Mock(json=lambda: {'value': [{'id': 'segundo'}]})]
+            with patch.object(graph, '_graph_request', side_effect=replies) as request:
+                result = method()
+            self.assertEqual(len(result), 2)
+            self.assertEqual(request.call_count, 2)
+            self.assertEqual(request.call_args.args[1], path + '?$skiptoken=segunda')
+
+    def test_graph_catalog_rejects_foreign_or_circular_continuations_and_malformed_pages(self):
+        from apps.integrations.services.graph import MicrosoftGraphClient
+        from apps.integrations.exceptions import IntegrationError
+        graph = MicrosoftGraphClient()
+        for body in ({'value': [], '@odata.nextLink': 'https://ajeno.example/groups?token=1'},
+                     {'value': None}, {'value': [{}]}):
+            with patch.object(graph, '_graph_request', return_value=Mock(json=lambda: body)), self.assertRaises(IntegrationError):
+                graph.list_teams()
+        body = {'value': [], '@odata.nextLink': graph.graph_base_url + '/groups?pagina=1'}
+        with patch.object(graph, '_graph_request', return_value=Mock(json=lambda: body)), self.assertRaises(IntegrationError):
+            graph.list_teams()
+
+    def test_moodle_catalog_resolves_category_and_user_courses_without_access_logs(self):
+        from apps.integrations.services.moodle import MoodleRestClient
+        moodle = MoodleRestClient()
+        with patch.object(moodle, '_call', side_effect=[[{'id': 3, 'name': 'Grado'}],
+                [{'id': 1, 'shortname': 'I1', 'fullname': 'Ingreso', 'categoryid': 3}]]) as remote:
+            self.assertEqual(moodle.list_courses()[0]['category_name'], 'Grado')
+        self.assertEqual([call.args[0] for call in remote.call_args_list], ['core_course_get_categories', 'core_course_get_courses'])
+        with patch.object(moodle, '_call', return_value=[{'id': 1, 'shortname': 'I1'}]) as remote:
+            self.assertEqual(moodle.get_user_courses(12)[0]['shortname'], 'I1')
+            remote.assert_called_once_with('core_enrol_get_users_courses', data={'userid': 12, 'returnusercount': 0})
+
+
+@skipUnless(apps.is_installed('apps.platform_mocks'), 'Requiere platform_mocks.')
+@override_settings(ENABLE_LOCAL_MOCKS=True, LUCY_DRY_RUN=False, LUCY_M365_SKU_ID='release-a1')
+class ReleaseLayoutSeedTests(TestCase):
+    """Semilla reproducible del release y estructura adaptable de la navegación institucional."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.admin = get_user_model().objects.create_user('release-admin')
+        cls.admin.groups.add(Group.objects.get(name='adm_alumnos_rol_admin'))
+
+    def setUp(self):
+        self.client.force_login(self.admin)
+
+    def test_seed_mirrors_are_idempotent_and_survive_catalog_sync(self):
+        from io import StringIO
+        from django.core.management import call_command
+        from django.db.models import Count
+        from apps.integrations.catalogs import sync_external_catalogs
+        from apps.integrations.models import TeamsWorkspaceMirror, TeamsChannelMirror, TeamsMemberMirror, MoodleCourseMirror
+        from apps.platform_mocks.models import MockTeam, MockTeamMember, MockTeamChannel, MockMoodleEnrollment, MockMoodleUser, MockMoodleCourse
+        from apps.platform_mocks.clients import MockGraphClient, MockMoodleClient
+        output = StringIO()
+        legacy = MockMoodleCourse.objects.create(shortname='DEV-ALUMNOS', fullname='Curso de desarrollo anterior')
+        old_user = MockMoodleUser.objects.create(username='a95000000@eco.unrc.edu.ar', email='a95000000@eco.unrc.edu.ar', first_name='Alumno anterior')
+        MockMoodleEnrollment.objects.create(user=old_user, course=legacy)
+        MoodleCourseMirror.objects.create(course_id=legacy.pk, shortname='DEV-ALUMNOS', fullname=legacy.fullname, synced_at=timezone.now())
+        call_command('seed_dev_students', count=60, stdout=output)
+        self.assertFalse(MockMoodleCourse.objects.filter(shortname='DEV-ALUMNOS').exists())
+        original = {
+            'teams': list(TeamsWorkspaceMirror.objects.order_by('pk').values_list('pk', flat=True)),
+            'channels': list(TeamsChannelMirror.objects.order_by('pk').values_list('pk', flat=True)),
+            'members': list(TeamsMemberMirror.objects.order_by('pk').values_list('pk', flat=True)),
+            'courses': list(MoodleCourseMirror.objects.order_by('pk').values_list('pk', flat=True)),
+        }
+        call_command('seed_dev_students', count=60, stdout=output)
+        self.assertEqual(original['teams'], list(TeamsWorkspaceMirror.objects.order_by('pk').values_list('pk', flat=True)))
+        self.assertEqual(original['channels'], list(TeamsChannelMirror.objects.order_by('pk').values_list('pk', flat=True)))
+        self.assertEqual(original['members'], list(TeamsMemberMirror.objects.order_by('pk').values_list('pk', flat=True)))
+        self.assertEqual(original['courses'], list(MoodleCourseMirror.objects.order_by('pk').values_list('pk', flat=True)))
+        self.assertEqual((TeamsWorkspaceMirror.objects.count(), TeamsChannelMirror.objects.count(), TeamsMemberMirror.objects.count(), MoodleCourseMirror.objects.count()), (3, 6, 61, 3))
+        self.assertEqual(set(MoodleCourseMirror.objects.values_list('course_id', 'fullname')), {
+            (9040, 'Introducción a la Economía'), (9041, 'Contabilidad I'), (9042, 'Administración General')})
+        self.assertEqual(TeamsMemberMirror.objects.filter(identity__metadata__seed='seed_dev_students').values('identity_id').distinct().count(), 60)
+        self.assertEqual(TeamsMemberMirror.objects.filter(identity=None).count(), 1)
+        self.assertEqual(TeamsWorkspaceMirror.objects.filter(members_count=1, owners_count=0).count(), 1)
+        self.assertEqual(sorted(TeamsWorkspaceMirror.objects.values_list('members_count', flat=True)), [1, 29, 31])
+        for team in TeamsWorkspaceMirror.objects.annotate(actual_count=Count('members')):
+            self.assertEqual(team.members_count, team.actual_count)
+            self.assertEqual(team.owners_count, team.members.filter(role='owner').count())
+            self.assertEqual(set(team.channels.values_list('display_name', 'membership_type')), {('General', 'standard'), ('Comisión 1', 'private')})
+        self.assertEqual((MockTeam.objects.count(), MockTeamChannel.objects.count(), MockTeamMember.objects.count()), (3, 6, 61))
+        self.assertEqual(MockMoodleEnrollment.objects.count(), 60)
+        with patch('requests.sessions.Session.request', side_effect=AssertionError('La semilla y los mocks no consultan la red.')):
+            self.assertEqual(sync_external_catalogs(graph=MockGraphClient(), moodle=MockMoodleClient()), {'TEAMS': 'SUCCEEDED', 'MOODLE': 'SUCCEEDED'})
+        self.assertEqual((TeamsWorkspaceMirror.objects.count(), TeamsChannelMirror.objects.count(), TeamsMemberMirror.objects.count(), MoodleCourseMirror.objects.count()), (3, 6, 61, 3))
+        self.assertIn('3 equipos, 6 canales, 61 miembros y 3 cursos', output.getvalue())
+
+    def test_responsive_sidebar_full_width_active_navigation_and_horizontal_grid(self):
+        from html.parser import HTMLParser
+        class LayoutParser(HTMLParser):
+            """Releva atributos de navegación sin depender del formato del HTML."""
+            def __init__(self):
+                super().__init__()
+                self.tags = []
+            def handle_starttag(self, tag, attrs):
+                self.tags.append((tag, dict(attrs)))
+        response = self.client.get(reverse('portal:administracion'))
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, 'max-w-7xl')
+        self.assertContains(response, 'Menú Administración')
+        self.assertContains(response, 'overflow-x-auto')
+        self.assertContains(response, 'prefers-reduced-motion')
+        parser = LayoutParser()
+        parser.feed(response.content.decode())
+        aside = next(attrs for tag, attrs in parser.tags if tag == 'aside')
+        self.assertEqual(aside['id'], 'administration-sidebar')
+        self.assertNotIn('rounded-2xl', aside['class'])
+        button = next(attrs for tag, attrs in parser.tags if attrs.get('id') == 'admin-menu-toggle')
+        self.assertEqual((button['aria-controls'], button['aria-expanded']), ('admin-navigation', 'false'))
+        self.assertIn('lg:hidden', button['class'])
+        active = [attrs['href'] for tag, attrs in parser.tags if tag == 'a' and attrs.get('aria-current') == 'page']
+        self.assertEqual(active, [reverse('portal:administracion')])
+        builder = self.client.get(reverse('portal:query_builder'))
+        parser = LayoutParser()
+        parser.feed(builder.content.decode())
+        active = [attrs['href'] for tag, attrs in parser.tags if tag == 'a' and attrs.get('aria-current') == 'page']
+        self.assertEqual(active, [reverse('portal:query_builder')])
+        self.assertContains(self.client.get(reverse('portal:postgrado')), 'max-w-7xl')

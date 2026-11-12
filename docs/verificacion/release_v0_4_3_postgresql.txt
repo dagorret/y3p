@@ -1,0 +1,128 @@
+$ /home/carlos/work/y3p/.venv/bin/python -c import sys, django; print("Python:", sys.version); print("Django:", django.get_version())
+Python: 3.12.15 (main, Oct 21 2026, 17:47:06) [Clang 23.1.3 ]
+Django: 6.1.2
+Código de salida: 0
+
+$ /home/carlos/work/y3p/.venv/bin/python manage.py shell -c from django.db import connection; connection.ensure_connection(); print("Motor:", connection.vendor); print("PostgreSQL:", connection.pg_version)
+38 objects imported automatically (use -v 2 for details).
+
+Motor: postgresql
+PostgreSQL: 160015
+Código de salida: 0
+
+$ /home/carlos/work/y3p/.venv/bin/python manage.py makemigrations --check --dry-run
+No changes detected
+Código de salida: 0
+
+$ /home/carlos/work/y3p/.venv/bin/python manage.py migrate
+Operations to perform:
+  Apply all migrations: admin, auth, contenttypes, integrations, people, platform_mocks, portal, sessions
+Running migrations:
+  No migrations to apply.
+Código de salida: 0
+
+$ /home/carlos/work/y3p/.venv/bin/python manage.py seed_dev_students --count 60
+Semilla sincronizada: 60 alumnos. Verde: 30, Amarillo: 12, Naranja: 12, Rojo: 6.
+Espejos sembrados: 3 equipos, 6 canales, 61 miembros y 3 cursos.
+Código de salida: 0
+
+$ /home/carlos/work/y3p/.venv/bin/python manage.py seed_dev_students --count 60
+Semilla sincronizada: 60 alumnos. Verde: 30, Amarillo: 12, Naranja: 12, Rojo: 6.
+Espejos sembrados: 3 equipos, 6 canales, 61 miembros y 3 cursos.
+Código de salida: 0
+
+$ /home/carlos/work/y3p/.venv/bin/python manage.py check
+System check identified no issues (0 silenced).
+Código de salida: 0
+
+$ /home/carlos/work/y3p/.venv/bin/python manage.py test --noinput
+Creating test database for alias 'default'...
+...................................integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+........integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+..................................................................integration_operation_simulated
+integration_operation_simulated
+........................................................integration_operation_simulated
+.integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+...........integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+......
+----------------------------------------------------------------------
+Ran 183 tests in 54.381s
+
+OK
+Destroying test database for alias 'default'...
+Found 183 test(s).
+System check identified no issues (0 silenced).
+
+MASIVIDAD: 150 eventos SUCCEEDED; 150 cuentas licenciadas; 550 matrículas; 500 grupos; ingesta=4.211s; procesamiento=13.226s; pasadas=4; sin bloqueos ni transacciones pendientes.
+Eventos simulados que se rearmarían: 1.
+Eventos rearmados: 1 de 1.
+Código de salida: 0
+
+$ /home/carlos/work/y3p/.venv/bin/python manage.py shell -c from apps.integrations.models import TeamsWorkspaceMirror, TeamsChannelMirror, TeamsMemberMirror, MoodleCourseMirror
+print('Equipos:', TeamsWorkspaceMirror.objects.count())
+print('Canales:', TeamsChannelMirror.objects.count())
+print('Membresías:', TeamsMemberMirror.objects.count())
+print('Miembros con Identity:', TeamsMemberMirror.objects.filter(identity__isnull=False).count())
+print('Invitados externos sin Identity:', TeamsMemberMirror.objects.filter(identity__isnull=True).count())
+print('Equipos con un miembro y ningún propietario:', TeamsWorkspaceMirror.objects.filter(members_count=1, owners_count=0).count())
+print('Cursos:', MoodleCourseMirror.objects.count())
+print('Distribución por equipo:', list(TeamsWorkspaceMirror.objects.values_list('display_name', 'members_count', 'owners_count')))
+print('Catálogo Moodle:', list(MoodleCourseMirror.objects.values_list('course_id', 'fullname', 'enrolled_count')))
+38 objects imported automatically (use -v 2 for details).
+
+Equipos: 3
+Canales: 6
+Membresías: 61
+Miembros con Identity: 60
+Invitados externos sin Identity: 1
+Equipos con un miembro y ningún propietario: 1
+Cursos: 3
+Distribución por equipo: [('Desarrollo · Administración General', 1, 0), ('Desarrollo · Contabilidad I', 29, 1), ('Desarrollo · Introducción a la Economía', 31, 1)]
+Catálogo Moodle: [(9040, 'Introducción a la Economía', 20), (9041, 'Contabilidad I', 20), (9042, 'Administración General', 20)]
+Código de salida: 0
+
+Verificación del cierre v0.4.3
+Rama de trabajo: feature/grid-expansion-communications. Base: main / v0.4.2 / 1ca6bfb.
+Layout: ancho completo exclusivo de administración, encabezado y barra lateral anclados sin márgenes laterales externos.
+Navegación: sección activa según request.path; menú móvil con aria-controls, aria-expanded, cierre con Escape y foco restituido al botón.
+Se contempla navegación sin JavaScript y la preferencia de movimiento reducido. Los portales de posgrado y extensión mantienen su ancho anterior.
+Capturas de Firefox inspeccionadas a 1440x1000 y 390x844; filtros en una fila de escritorio y dos columnas móviles, tabla con scroll horizontal y semáforo con explicación accesible.
+Migración nueva: platform_mocks.0004_mockteamchannel, aplicada antes de sembrar. Mantiene los canales General y Comisión 1 en el origen mock y en el espejo tras sincronizar.
+Semilla idempotente: UUID de equipos y claves de canales estables; 60 identidades, 60 matrículas, 3 cursos, 3 equipos, 6 canales y 61 membresías (60 locales y 1 invitado externo sin Identity).
+Distribución por equipo: 31, 29 y 1 membresías; propietarios: 1, 1 y 0. El equipo unitario permite probar auditorías de equipos sin propietarios.
+Cursos: 9040 Introducción a la Economía; 9041 Contabilidad I; 9042 Administración General, con 20 matrículas activas cada uno.
+La semilla migra las matrículas anteriores de DEV-ALUMNOS y elimina ese curso anterior únicamente si ya no tiene matrículas.
+Las pruebas comprueban estabilidad de claves al repetir la semilla y conservación de los seis canales tras sincronizar los mocks.
+Conteo de salud conservado: 30 verdes, 12 amarillos, 12 naranjas y 6 rojos.
+Las verificaciones usaron PostgreSQL 16.15, Python 3.12.15 y Django 6.1.2. Suite completa: 183 pruebas, OK; salida íntegra arriba.

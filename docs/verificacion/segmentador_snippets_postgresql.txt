@@ -1,0 +1,119 @@
+$ /home/carlos/work/y3p/.venv/bin/python -c import sys, django; print("Python:", sys.version); print("Django:", django.get_version())
+Python: 3.12.15 (main, Oct 21 2026, 17:47:06) [Clang 23.1.3 ]
+Django: 6.1.2
+Código de salida: 0
+
+$ /home/carlos/work/y3p/.venv/bin/python manage.py shell -c from django.db import connection; connection.ensure_connection(); print("Motor:", connection.vendor); print("PostgreSQL:", connection.pg_version)
+32 objects imported automatically (use -v 2 for details).
+
+Motor: postgresql
+PostgreSQL: 160015
+Código de salida: 0
+
+$ /home/carlos/work/y3p/.venv/bin/python manage.py showmigrations portal
+portal
+ [X] 0001_initial
+Código de salida: 0
+
+$ /home/carlos/work/y3p/.venv/bin/python manage.py makemigrations --check --dry-run
+No changes detected
+Código de salida: 0
+
+$ /home/carlos/work/y3p/.venv/bin/python manage.py check
+System check identified no issues (0 silenced).
+Código de salida: 0
+
+$ /home/carlos/work/y3p/.venv/bin/python manage.py test --noinput
+Creating test database for alias 'default'...
+...................................integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+........integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+..............................................integration_operation_simulated
+integration_operation_simulated
+........................................................integration_operation_simulated
+.integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+...........integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+......
+----------------------------------------------------------------------
+Ran 163 tests in 27.508s
+
+OK
+Destroying test database for alias 'default'...
+Found 163 test(s).
+System check identified no issues (0 silenced).
+
+MASIVIDAD: 150 eventos SUCCEEDED; 150 cuentas licenciadas; 550 matrículas; 500 grupos; ingesta=2.121s; procesamiento=8.713s; pasadas=4; sin bloqueos ni transacciones pendientes.
+Eventos simulados que se rearmarían: 1.
+Eventos rearmados: 1 de 1.
+Código de salida: 0
+
+Bloque 2: Segmentador dinámico y snippets de consulta
+Rama: feature/grid-expansion-communications
+Migración aplicada en PostgreSQL: portal.0001_initial (AdminQuerySnippet).
+
+Ejemplos de fórmulas soportadas:
+carrera:CONTADOR AND salud:ROJO AND vence:vencido
+carrera:"Contador Público" AND saga:ASP
+dni:42100 AND licencia:NO
+saga:INGRE AND moodle:SI AND vence:<30d
+carrera:2 AND salud:VERDE
+
+Semántica:
+Carrera: código numérico exacto o texto parcial sobre la referencia académica almacenada.
+DNI: coincidencia por prefijo, que incluye coincidencias exactas.
+Vence:<Nd: vinculaciones activas desde el instante actual hasta antes de N días; no incluye vencidas ni indefinidas.
+Vence:vencido: vinculaciones activas con TTL alcanzado o vencido.
+Licencia:NO: ausencia confirmada de licencia; la falta de observaciones no acredita esta condición.
+Carrera, saga y TTL deben cumplirse sobre la misma vinculación, junto con los filtros simples.
+Parser limitado a 2000 caracteres y 30 condiciones; claves y operadores ORM fijos, valores parametrizados.
+Grilla: error legible y cero resultados ante sintaxis inválida; Excel: HTTP 400.
+Visibilidad: vistas propias o compartidas; guardar requiere operación diaria; borrar requiere autoría o administración crítica.
+Siete consultas por página, incluida la lista de snippets; cero consultas al renderizar relaciones precargadas.
+
+Archivos del Bloque 2:
+apps/portal/models.py
+apps/portal/migrations/__init__.py
+apps/portal/migrations/0001_initial.py
+apps/portal/query_parser.py
+apps/portal/snippet_services.py
+apps/portal/snippet_views.py
+apps/portal/student_grid.py
+apps/portal/student_export.py
+apps/portal/views.py
+apps/portal/bulk_views.py
+apps/portal/urls.py
+apps/portal/templates/portal/administracion.html
+apps/portal/templates/portal/fragments/student_filters.html
+apps/portal/templates/portal/fragments/administracion_results.html
+tests/portal/test_admin_suite.py
+docs/verificacion/segmentador_snippets_postgresql.txt

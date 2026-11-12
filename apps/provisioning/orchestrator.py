@@ -72,7 +72,7 @@ def _run_support(event, simulated):
     """Reutiliza FIFO, recuperación y checkpoints para las órdenes de ventanilla."""
     from apps.people.support import perform_support
     operation = event.payload.get('support_action')
-    if event.requested_by is None or operation not in ('credentials', 'moodle_enrol', 'license'):
+    if event.requested_by is None or operation not in ('credentials', 'moodle_enrol', 'license', 'notification'):
         #FPROVISIONINGORCHESTRATOR004-8004: Origina PermanentProvisioningError; el llamador conserva la causa y decide su tratamiento.
         raise PermanentProvisioningError('La solicitud administrativa no es válida.')
     checkpoint = _checkpoint_value(event.pk, 'support')

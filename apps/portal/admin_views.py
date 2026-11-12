@@ -20,6 +20,10 @@ from .permissions import StaffPortalMixin
 
 
 def ficha_context(identity, *, message='', error=False):
+    from .student_grid import student_queryset, describe_health
+    diagnosis = student_queryset({}).filter(pk=identity.pk).prefetch_related(None).first()
+    if diagnosis:
+        describe_health([diagnosis])
     profile = getattr(identity, 'personal_profile', None)
     initial = {'first_name': identity.first_name, 'last_name': identity.last_name}
     initial.update({field: getattr(profile, field, '') for field in ('personal_email', 'phone', 'city', 'address')})
@@ -32,6 +36,8 @@ def ficha_context(identity, *, message='', error=False):
         )
         affiliation.events = affiliation.history.select_related('changed_by_user', 'from_status', 'to_status').order_by('-occurred_at')[:20]
     return {
+        'diagnosis': diagnosis,
+        'teams_memberships': identity.teams_memberships.select_related('workspace').prefetch_related('workspace__channels'),
         'identity': identity, 'contact_form': IdentityContactForm(initial=initial),
         'metadata_form': MetadataForm(initial={'operation': 'add'}),
         'metadata_json': json.dumps(identity.metadata, ensure_ascii=False, indent=2),
@@ -146,3 +152,12 @@ class MoodleExpressView(IdentityMutationView):
     def apply(self, request, identity, form, affiliation, **kwargs):
         result = perform_support(identity.pk, kwargs['action'], user=request.user, **form.cleaned_data)
         return 'SIMULACIÓN: operación Moodle validada.' if result.simulated else 'Operación Moodle completada.'
+
+
+class IdentityPlatformRefreshView(IdentityMutationView):
+    """Refresco puntual por POST; la ficha consulta después la pivot con precarga de canales."""
+
+    def apply(self, request, identity, form, affiliation, **kwargs):
+        from apps.integrations.catalogs import refresh_identity_platforms
+        refresh_identity_platforms(identity, user=request.user)
+        return 'Estado de Teams y Moodle actualizado.'

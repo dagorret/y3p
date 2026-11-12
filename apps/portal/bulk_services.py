@@ -1,4 +1,8 @@
-"""Emisión atómica de órdenes masivas sin ejecutar APIs durante el POST."""
+"""Outbox transaccional: persiste el lote y su auditoría antes de avisar a Celery.
+
+El bloqueo de identidades serializa órdenes concurrentes; las vinculaciones se
+precargan para evitar N+1. Ninguna llamada remota participa del POST.
+"""
 
 import uuid
 
@@ -14,7 +18,7 @@ from apps.people.support import audit, require_permission
 
 @transaction.atomic
 def enqueue_student_actions(identity_ids, action, *, user, options=None):
-    """Guarda un lote completo de hasta 50 solicitudes o revierte todas sus filas.
+    """Guarda un lote completo de hasta 200 solicitudes o revierte todas sus filas.
 
     La selección se valida en el servidor y cada evento conserva actor y lote,
     nunca contraseñas. El aviso a Celery ocurre después de confirmar la base.
@@ -23,13 +27,13 @@ def enqueue_student_actions(identity_ids, action, *, user, options=None):
     a la selección. La interfaz confirma registro, no ejecución remota inmediata.
     """
     require_permission(user, ADMINISTRATE_STUDENT_CRITICAL if action == 'license' else OPERATE_STUDENT_DAILY)
-    if action not in ('credentials', 'moodle_enrol', 'license'):
+    if action not in ('credentials', 'moodle_enrol', 'license', 'notification'):
         #FPORTALBULKSERVICES001-8001: Origina ValidationError; el llamador conserva la causa y decide su tratamiento.
         raise ValidationError('Acción masiva no permitida.')
     ids = list(dict.fromkeys(identity_ids))
-    if not ids or len(ids) > 50:
+    if not ids or len(ids) > 200:
         #FPORTALBULKSERVICES002-8002: Origina ValidationError; el llamador conserva la causa y decide su tratamiento.
-        raise ValidationError('Seleccione entre 1 y 50 alumnos de la página.')
+        raise ValidationError('Seleccione entre 1 y 200 alumnos de la página.')
     if action == 'moodle_enrol':
         from .forms import MoodleExpressForm
         form = MoodleExpressForm(options or {})
@@ -37,6 +41,9 @@ def enqueue_student_actions(identity_ids, action, *, user, options=None):
             #FPORTALBULKSERVICES003-8003: Origina ValidationError; el llamador conserva la causa y decide su tratamiento.
             raise ValidationError('Indique un curso Moodle y un rol válido.')
         options = form.cleaned_data
+    elif action == 'notification':
+        from apps.people.notifications import validate_notification
+        options = validate_notification(options or {})
     else:
         options = {}
     identities = list(Identity.objects.select_for_update().filter(pk__in=ids).order_by('pk').prefetch_related(
@@ -49,9 +56,13 @@ def enqueue_student_actions(identity_ids, action, *, user, options=None):
     batch_id = str(uuid.uuid4())
     events = []
     for identity in identities:
+        event_options = options
+        if action == 'notification':
+            from apps.people.notifications import render_notification
+            event_options = render_notification(identity, options)
         event = OutboxEvent.objects.create(
             identity=identity, affiliation=identity.student_affiliations[0], requested_by=user, action='SUPPORT',
-            payload={'support_action': action, 'support_options': options, 'batch_id': batch_id},
+            payload={'support_action': action, 'support_options': event_options, 'batch_id': batch_id},
         )
         audit(identity, user, 'bulk_queued', status='PENDING', operation=action,
               batch_id=batch_id, event_id=event.pk)

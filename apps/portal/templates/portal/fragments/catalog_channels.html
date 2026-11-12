@@ -1,0 +1,1 @@
+<label id="catalog-channels">Canal del equipo<select name="channel_id"><option value="">Seleccione un canal</option>{% for channel in catalog_channels %}<option value="{{ channel.channel_id }}">{{ channel.display_name }} · {{ channel.get_membership_type_display }}</option>{% endfor %}</select></label>

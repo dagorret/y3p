@@ -332,6 +332,26 @@ class MoodleRestClient(BaseIntegrationClient):
                 raise IntegrationError('Moodle devolvió roles o grupos de participante inválidos.') from error
         return tuple(participants)
 
+    def list_courses(self):
+        """Lee catálogo y categorías completos; el servicio obtiene los conteos activos."""
+        categories = self._call('core_course_get_categories')
+        courses = self._call('core_course_get_courses')
+        #FCATMOODLE01-9011: Rechaza catálogos parciales o mal formados antes de persistir.
+        if not isinstance(categories, list) or not isinstance(courses, list) or any(
+            not isinstance(row, dict) or not row.get('id') for row in categories + courses
+        ):
+            raise IntegrationError('Moodle devolvió un catálogo o categorías inválidos.')
+        names = {row['id']: row.get('name', '') for row in categories}
+        return [{**row, 'category_name': names.get(row.get('categoryid'), '')} for row in courses]
+
+    def get_user_courses(self, user_id):
+        """Consulta cursos del usuario sin recopilar registros de acceso."""
+        courses = self._call('core_enrol_get_users_courses', data={'userid': user_id, 'returnusercount': 0})
+        #FCATMOODLE02-9012: Los cursos individuales deben conservar identificador y nombre corto.
+        if not isinstance(courses, list) or any(not isinstance(row, dict) or not row.get('id') or not row.get('shortname') for row in courses):
+            raise IntegrationError('Moodle devolvió cursos de usuario inválidos.')
+        return [{'id': row['id'], 'shortname': row['shortname']} for row in courses]
+
     def change_user_group(self, user_id: int, course_id: int, old_group_id: int | None, new_group_id: int) -> ExternalActionResult:
         self._validate_enrollment_ids(user_id, course_id, 5)
         self._validate_group_ids(new_group_id, user_id)

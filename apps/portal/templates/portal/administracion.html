@@ -1,19 +1,7 @@
 {% extends "portal/administracion/base_administracion.html" %}
 {% block title %}Administración · Portal Y3P{% endblock %}
 {% block admin_content %}
-  <section class="mb-8">
-    <p class="text-sm font-semibold uppercase tracking-wider text-blue-700">Ventanilla de soporte</p>
-    <h1 class="mt-2 text-3xl font-bold text-slate-900">Administración</h1>
-    <p class="mt-2 max-w-2xl text-slate-600">Consola de alumnos: 50 identidades por página, diagnóstico local y operaciones trazables.</p>
-  </section>
-  <form id="student-filters" method="get" class="mb-6 grid gap-4 rounded-xl bg-white p-4 md:grid-cols-4"
-        hx-get="{% url 'portal:administracion' %}" hx-trigger="change from:select" hx-target="#tabla-alumnos-container" hx-swap="outerHTML" hx-push-url="true">
-    <label>Carrera<select name="career"><option value="">Todas</option>{% for career in careers %}<option value="{{ career }}" {% if filters.career == career %}selected{% endif %}>{{ career }}</option>{% endfor %}</select></label>
-    <label>Estado de saga<select name="status"><option value="">Todos</option>{% for code, name in saga_states %}<option value="{{ code }}" {% if filters.status == code %}selected{% endif %}>{{ code }} · {{ name }}</option>{% endfor %}</select></label>
-    <label>Semáforo<select name="health"><option value="">Todos</option>{% for code, label in health_options %}<option value="{{ code }}" {% if filters.health == code %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
-    <label for="person-search">DNI, apellido, nombre o UPN<input id="person-search" name="q" type="search" value="{{ query }}" autocomplete="off" placeholder="Ej.: 30123456 o Pérez"
-         hx-get="{% url 'portal:administracion' %}" hx-include="#student-filters" hx-trigger="keyup changed delay:300ms, search" hx-target="#tabla-alumnos-container" hx-swap="outerHTML" hx-push-url="true"></label>
-  </form>
-  <p class="mb-4 text-xs text-slate-600">Prioridad: rojo → naranja → amarillo → verde. Sin actividad u observaciones confirmadas se informa advertencia; una vigencia sin fecha se considera indefinida. El diagnóstico usa datos locales y no consulta APIs al cargar.</p>
+  <h1 class="mb-3 text-2xl font-bold">Administración de alumnos</h1>
+  {% include "portal/fragments/student_filters.html" %}
   {% include "portal/fragments/administracion_results.html" %}
 {% endblock %}

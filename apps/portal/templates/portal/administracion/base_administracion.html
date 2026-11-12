@@ -1,24 +1,59 @@
 {% extends "portal/base.html" %}
+{% block header_classes %}border-b border-slate-200 bg-white lg:sticky lg:top-0 z-40{% endblock %}
+{% block header_container_classes %}flex min-h-16 w-full flex-col gap-2 px-3 py-3 sm:flex-row sm:items-center sm:justify-between lg:h-16 lg:px-6{% endblock %}
+{% block main_classes %}w-full min-w-0{% endblock %}
 {% block content %}
 <style>
   .admin-workspace input:not([type=hidden]):not([type=checkbox]), .admin-workspace select, .admin-workspace textarea { border: 1px solid #cbd5e1; border-radius: .5rem; padding: .6rem; max-width: 100%; width: 100%; background: white; }
   .admin-workspace form p { margin: 1rem 0; }
   .admin-workspace form label { display: block; font-weight: 600; }
   .admin-workspace .errorlist { color: #991b1b; }
+  .admin-sidebar { background: #0f172a; color: white; }
+  .admin-nav-link { display: block; border-radius: .5rem; padding: .75rem; transition: background-color .15s ease, color .15s ease; }
+  .admin-nav-link:hover { background: #334155; }
+  .admin-nav-link[aria-current="page"] { background: #1d4ed8; color: white; font-weight: 700; }
+  .admin-nav-link:focus-visible, #admin-menu-toggle:focus-visible { outline: 3px solid #93c5fd; outline-offset: 2px; }
+  #admin-navigation:not([hidden]) { animation: admin-menu-enter .15s ease-out; }
+  @keyframes admin-menu-enter { from { opacity: 0; transform: translateY(-.25rem); } to { opacity: 1; transform: translateY(0); } }
+  @media (min-width: 1024px) {
+    .admin-sidebar { position: sticky; top: 4rem; height: calc(100dvh - 4rem); min-height: calc(100vh - 4rem); overflow-y: auto; }
+    #admin-navigation[hidden] { display: block; }
+    #admin-navigation:not([hidden]) { animation: none; }
+  }
+  @media (prefers-reduced-motion: reduce) { .admin-nav-link { transition: none; } #admin-navigation:not([hidden]) { animation: none; } }
 </style>
-<div class="admin-workspace grid gap-8 lg:grid-cols-[240px_minmax(0,1fr)]">
-  <aside class="self-start rounded-2xl bg-slate-900 p-5 text-white lg:sticky lg:top-6">
-    <h2 class="mb-5 text-xs font-semibold uppercase tracking-widest text-slate-300">Administración Y3P</h2>
-    <nav aria-label="Gestión administrativa" class="space-y-2">
-      <a class="block rounded-lg px-3 py-3 hover:bg-slate-700" href="{% url 'portal:administracion' %}">Buscador / 360°</a>
-      {% if can_administer_critical %}<a class="block rounded-lg px-3 py-3 hover:bg-slate-700" href="{% url 'portal:person_create' %}">Alta de Persona</a>{% endif %}
-      {% if can_administer_critical %}<a class="block rounded-lg px-3 py-3 hover:bg-slate-700" href="{% url 'portal:teams' %}">Gestión de Teams</a>{% endif %}
-      {% if can_administer_critical %}<a class="block rounded-lg px-3 py-3 hover:bg-slate-700" href="{% url 'portal:functional_create' %}">Cuentas Funcionales</a>{% endif %}
+<div class="admin-workspace grid min-h-[calc(100vh-4rem)] min-w-0 lg:grid-cols-[240px_minmax(0,1fr)]">
+  <aside id="administration-sidebar" class="admin-sidebar self-start p-3 lg:p-4" aria-label="Administración Y3P">
+    <button id="admin-menu-toggle" type="button" class="flex w-full items-center gap-3 rounded-lg p-2 text-left font-semibold lg:hidden" aria-controls="admin-navigation" aria-expanded="false">
+      <svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+      Menú Administración
+    </button>
+    <nav id="admin-navigation" aria-label="Gestión administrativa" hidden>
+      <h2 class="mb-4 mt-2 px-3 text-xs font-semibold uppercase tracking-widest text-slate-300">Administración Y3P</h2>
+      {% for item in admin_navigation %}<a class="admin-nav-link" href="{{ item.url }}" {% if item.active %}aria-current="page"{% endif %}>{{ item.label }}</a>{% endfor %}
     </nav>
   </aside>
-  <div class="min-w-0">
+  <div class="min-w-0 p-3 sm:p-5 lg:p-6">
     {% for notice in messages %}<div role="status" class="mb-5 rounded-xl bg-emerald-100 p-4 text-emerald-900">{{ notice }}</div>{% endfor %}
     {% block admin_content %}{% endblock %}
   </div>
 </div>
+<noscript><style>#admin-navigation[hidden] { display: block; } #admin-menu-toggle { display: none; }</style></noscript>
+<script>
+  (() => {
+    const button = document.getElementById('admin-menu-toggle');
+    const navigation = document.getElementById('admin-navigation');
+    const desktop = window.matchMedia('(min-width: 1024px)');
+    const update = expanded => {
+      navigation.hidden = !expanded;
+      button.setAttribute('aria-expanded', String(expanded));
+    };
+    button.addEventListener('click', () => update(navigation.hidden));
+    navigation.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && !desktop.matches) { update(false); button.focus(); }
+    });
+    desktop.addEventListener('change', () => update(desktop.matches));
+    update(desktop.matches);
+  })();
+</script>
 {% endblock %}

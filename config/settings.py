@@ -205,3 +205,9 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": 300.0,
     },
 }
+
+#FCATALOGSCHEDULE01-9201: Beat respeta la agenda editable de cada origen en PostgreSQL.
+CELERY_BEAT_SCHEDULE['catalogs-check-every-minute'] = {
+    'task': 'integrations.sync_due_catalogs', 'schedule': 60.0,
+    'options': {'queue': 'provisioning'},
+}

@@ -1,0 +1,215 @@
+$ /home/carlos/work/y3p/.venv/bin/python -c import sys, django; print("Python:", sys.version); print("Django:", django.get_version())
+Python: 3.12.15 (main, Oct 21 2026, 17:47:06) [Clang 23.1.3 ]
+Django: 6.1.2
+Código de salida: 0
+
+$ /home/carlos/work/y3p/.venv/bin/python manage.py shell -c from django.db import connection; connection.ensure_connection(); print("Motor:", connection.vendor); print("PostgreSQL:", connection.pg_version)
+37 objects imported automatically (use -v 2 for details).
+
+Motor: postgresql
+PostgreSQL: 160015
+Código de salida: 0
+
+$ /home/carlos/work/y3p/.venv/bin/python manage.py makemigrations
+No changes detected
+Código de salida: 0
+
+$ /home/carlos/work/y3p/.venv/bin/python manage.py migrate
+Operations to perform:
+  Apply all migrations: admin, auth, contenttypes, integrations, people, platform_mocks, portal, sessions
+Running migrations:
+  No migrations to apply.
+Código de salida: 0
+
+$ /home/carlos/work/y3p/.venv/bin/python manage.py showmigrations integrations
+integrations
+ [X] 0001_initial
+ [X] 0002_seed_admission_course_rules
+ [X] 0003_teamworkspace
+ [X] 0004_teamworkspace_moodle_observed_at
+ [X] 0005_backfill_team_workspaces
+ [X] 0006_moodlecoursemirror_teamsworkspacemirror_and_more
+ [X] 0007_seed_catalog_sync_states
+Código de salida: 0
+
+$ /home/carlos/work/y3p/.venv/bin/python manage.py makemigrations --check --dry-run
+No changes detected
+Código de salida: 0
+
+$ /home/carlos/work/y3p/.venv/bin/python manage.py check
+System check identified no issues (0 silenced).
+Código de salida: 0
+
+$ /home/carlos/work/y3p/.venv/bin/python manage.py test --noinput
+Creating test database for alias 'default'...
+...................................integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+........integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+................................................................integration_operation_simulated
+integration_operation_simulated
+........................................................integration_operation_simulated
+.integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+...........integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+......
+----------------------------------------------------------------------
+Ran 181 tests in 45.278s
+
+OK
+Destroying test database for alias 'default'...
+Found 181 test(s).
+System check identified no issues (0 silenced).
+
+MASIVIDAD: 150 eventos SUCCEEDED; 150 cuentas licenciadas; 550 matrículas; 500 grupos; ingesta=4.404s; procesamiento=12.272s; pasadas=4; sin bloqueos ni transacciones pendientes.
+Eventos simulados que se rearmarían: 1.
+Eventos rearmados: 1 de 1.
+Código de salida: 0
+
+$ /home/carlos/work/y3p/.venv/bin/python manage.py shell -c from django.conf import settings
+from apps.integrations.catalogs import sync_external_catalogs
+from apps.integrations.models import TeamsWorkspaceMirror, TeamsMemberMirror, TeamsChannelMirror, MoodleCourseMirror
+if settings.ENABLE_LOCAL_MOCKS:
+    print('Sincronización de desarrollo desde mocks locales:', sync_external_catalogs())
+    print('Equipos:', TeamsWorkspaceMirror.objects.count(), 'Canales:', TeamsChannelMirror.objects.count(), 'Miembros:', TeamsMemberMirror.objects.count(), 'Cursos:', MoodleCourseMirror.objects.count())
+else:
+    print('Se omite la sincronización de desarrollo: mocks deshabilitados.')
+37 objects imported automatically (use -v 2 for details).
+
+Sincronización de desarrollo desde mocks locales: {'TEAMS': 'SUCCEEDED', 'MOODLE': 'SUCCEEDED'}
+Equipos: 0 Canales: 0 Miembros: 0 Cursos: 1
+Código de salida: 0
+
+$ /home/carlos/work/y3p/.venv/bin/python manage.py shell -c from django.db import connection
+with connection.cursor() as cursor:
+    cursor.execute("SELECT indexname, indexdef FROM pg_indexes WHERE schemaname = current_schema() AND tablename IN ('integrations_teamsmembermirror', 'integrations_teamsworkspacemirror') ORDER BY tablename, indexname")
+    for name, definition in cursor.fetchall():
+        print(name + ': ' + definition)
+37 objects imported automatically (use -v 2 for details).
+
+integrations_teamsmembermirror_azure_user_id_44c57bd2: CREATE INDEX integrations_teamsmembermirror_azure_user_id_44c57bd2 ON public.integrations_teamsmembermirror USING btree (azure_user_id)
+integrations_teamsmembermirror_azure_user_id_44c57bd2_like: CREATE INDEX integrations_teamsmembermirror_azure_user_id_44c57bd2_like ON public.integrations_teamsmembermirror USING btree (azure_user_id varchar_pattern_ops)
+integrations_teamsmembermirror_identity_id_7bdfbb3f: CREATE INDEX integrations_teamsmembermirror_identity_id_7bdfbb3f ON public.integrations_teamsmembermirror USING btree (identity_id)
+integrations_teamsmembermirror_pkey: CREATE UNIQUE INDEX integrations_teamsmembermirror_pkey ON public.integrations_teamsmembermirror USING btree (id)
+integrations_teamsmembermirror_role_927f120f: CREATE INDEX integrations_teamsmembermirror_role_927f120f ON public.integrations_teamsmembermirror USING btree (role)
+integrations_teamsmembermirror_role_927f120f_like: CREATE INDEX integrations_teamsmembermirror_role_927f120f_like ON public.integrations_teamsmembermirror USING btree (role varchar_pattern_ops)
+integrations_teamsmembermirror_upn_0c7daa87: CREATE INDEX integrations_teamsmembermirror_upn_0c7daa87 ON public.integrations_teamsmembermirror USING btree (upn)
+integrations_teamsmembermirror_upn_0c7daa87_like: CREATE INDEX integrations_teamsmembermirror_upn_0c7daa87_like ON public.integrations_teamsmembermirror USING btree (upn varchar_pattern_ops)
+integrations_teamsmembermirror_workspace_id_302f4d24: CREATE INDEX integrations_teamsmembermirror_workspace_id_302f4d24 ON public.integrations_teamsmembermirror USING btree (workspace_id)
+ix_member_identity_workspace: CREATE INDEX ix_member_identity_workspace ON public.integrations_teamsmembermirror USING btree (identity_id, workspace_id)
+ix_member_workspace_role: CREATE INDEX ix_member_workspace_role ON public.integrations_teamsmembermirror USING btree (workspace_id, role)
+uniq_teams_member_workspace_upn: CREATE UNIQUE INDEX uniq_teams_member_workspace_upn ON public.integrations_teamsmembermirror USING btree (workspace_id, upn)
+integrations_teamsworkspacemirror_members_count_5e0f2cd4: CREATE INDEX integrations_teamsworkspacemirror_members_count_5e0f2cd4 ON public.integrations_teamsworkspacemirror USING btree (members_count)
+integrations_teamsworkspacemirror_pkey: CREATE UNIQUE INDEX integrations_teamsworkspacemirror_pkey ON public.integrations_teamsworkspacemirror USING btree (id)
+integrations_teamsworkspacemirror_team_id_8cfd25d5_like: CREATE INDEX integrations_teamsworkspacemirror_team_id_8cfd25d5_like ON public.integrations_teamsworkspacemirror USING btree (team_id varchar_pattern_ops)
+integrations_teamsworkspacemirror_team_id_key: CREATE UNIQUE INDEX integrations_teamsworkspacemirror_team_id_key ON public.integrations_teamsworkspacemirror USING btree (team_id)
+Código de salida: 0
+
+Reporte funcional y arquitectónico
+Rama: feature/grid-expansion-communications.
+Migraciones aplicadas:
+integrations.0006_moodlecoursemirror_teamsworkspacemirror_and_more: cinco modelos espejo, claves foráneas, restricciones e índices.
+integrations.0007_seed_catalog_sync_states: agendas TEAMS y MOODLE para el próximo sábado a la 01:00 local.
+
+Consola:
+/dash/administracion/: barra compacta, Excel, grilla, navegación numerada elidida y selector de snippets debajo.
+/dash/administracion/vistas/: fórmula segura, vista previa, guardado privado/compartido y borrado autorizado.
+/dash/administracion/sincronizacion/: resultado por origen, próxima ejecución, agenda editable y encolado manual con permiso de administración crítica.
+Ficha 360°: pertenencias consultadas mediante pivot y canales precargados; POST autorizado actualiza cuentas, matrícula, equipos y badges. Se conserva la ruta singular y se agrega el alias plural /personas/<id>/.
+La grilla mantiene siete consultas, incluida la lista de cursos; el renderizado no agrega consultas por alumno. Orden estable: last_name, first_name, id.
+
+Índices y consultas relacionales:
+uniq_teams_member_workspace_upn: UNIQUE(workspace_id, upn), evita duplicados y permite buscar la pertenencia al equipo por UPN.
+ix_member_identity_workspace: (identity_id, workspace_id), permite comprobar pertenencia y listar equipos de un alumno sin leer JSON.
+ix_member_workspace_role: (workspace_id, role), permite buscar propietarios o miembros de un equipo.
+Índices simples: azure_user_id, upn y role; Django agrega índices a las claves foráneas identity_id y workspace_id.
+TeamsWorkspaceMirror.members_count también está indexado para filtrar y contar equipos por cantidad de miembros. El contador incluye propietarios e invitados y se recalcula al conciliar.
+PostgreSQL emplea B-tree: se obtienen búsquedas indexadas, sin prometer complejidad O(1). La definición SQL real de todos los índices aparece arriba.
+Ejemplos ORM:
+TeamsMemberMirror.objects.filter(identity_id=alumno_id, workspace_id=equipo_id).exists()
+TeamsMemberMirror.objects.filter(identity_id=alumno_id).values_list('workspace__team_id', flat=True)
+TeamsWorkspaceMirror.objects.filter(members_count=1).count()
+
+Sincronización:
+Lecturas completas y paginadas fuera de la transacción; confirmación atómica independiente por origen; altas y cambios por lotes y eliminación de miembros, canales, equipos o cursos ausentes.
+Una lectura fallida conserva el espejo anterior y registra FAILED, fecha y tipo de error sin payloads ni secretos.
+El arrendamiento de treinta minutos y su UUID impiden confirmar lecturas de trabajadores desplazados y permiten recuperar ejecuciones interrumpidas.
+Las identidades se vinculan por UPN normalizado o Azure ID en DigitalAccount; invitados externos conservan identity=NULL.
+El espejo incluye canales standard y private. Su catálogo no acredita membresía individual en canales privados.
+El refresco individual no ejecuta un inventario global; consulta los equipos del alumno y sus matrículas, y conserva evidencia previa si falla una lectura.
+No se guardan registros de acceso ni se consultan reportes de actividad de Microsoft; ese alcance permanece en Purview.
+La ejecución de desarrollo utilizó exclusivamente mocks locales: un curso y ningún equipo existente; no se validaron credenciales contra proveedores reales.
+
+Operación de la agenda:
+La tarea integrations.sync_due_catalogs se configura cada sesenta segundos en CELERY_BEAT_SCHEDULE; calcula los vencimientos desde CatalogSyncState.
+La programación necesita el broker configurado, un worker para la cola provisioning y Celery Beat en ejecución. Esta verificación ejecutó las pruebas y el servicio con mocks; no inició procesos persistentes.
+Comandos operativos desde el entorno virtual:
+celery -A config worker -Q provisioning,moodle --loglevel=info
+celery -A config beat --loglevel=info
+
+Referencias primarias revisadas para los contratos de lectura:
+Microsoft Graph, grupos que respaldan equipos: https://learn.microsoft.com/en-us/graph/api/resources/teams-api-overview?view=graph-rest-1.0
+Microsoft Graph, canales y paginación: https://learn.microsoft.com/en-us/graph/api/channel-list?view=graph-rest-1.0
+Moodle, funciones de servicios web: https://docs.moodle.org/dev/Web_service_API_functions
+Moodle, matrícula activa y returnusercount: https://github.com/moodle/moodle/blob/MOODLE_405_STABLE/enrol/externallib.php
+
+Archivos principales de este bloque:
+apps/integrations/models.py
+apps/integrations/catalogs.py
+apps/integrations/tasks.py
+apps/integrations/migrations/0006_moodlecoursemirror_teamsworkspacemirror_and_more.py
+apps/integrations/migrations/0007_seed_catalog_sync_states.py
+apps/integrations/services/graph.py
+apps/integrations/services/moodle.py
+apps/platform_mocks/clients.py
+apps/portal/catalog_views.py
+apps/portal/admin_views.py
+apps/portal/forms.py
+apps/portal/global_views.py
+apps/portal/student_grid.py
+apps/portal/views.py
+apps/portal/snippet_views.py
+apps/portal/urls.py
+apps/portal/templates/portal/administracion.html
+apps/portal/templates/portal/administracion/base_administracion.html
+apps/portal/templates/portal/administracion/catalog_sync.html
+apps/portal/templates/portal/administracion/query_builder.html
+apps/portal/templates/portal/administracion/detail.html
+apps/portal/templates/portal/administracion/teams.html
+apps/portal/templates/portal/fragments/student_filters.html
+apps/portal/templates/portal/fragments/formula_editor.html
+apps/portal/templates/portal/fragments/snippet_management.html
+apps/portal/templates/portal/fragments/query_builder.html
+apps/portal/templates/portal/fragments/catalog_channels.html
+apps/portal/templates/portal/fragments/administracion_results.html
+config/settings.py
+tests/portal/test_admin_suite.py
+docs/verificacion/espejos_catalogos_postgresql.txt

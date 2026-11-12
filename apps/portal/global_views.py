@@ -8,6 +8,7 @@ from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.views import View
 
+from apps.integrations.models import TeamsWorkspaceMirror
 from apps.integrations.exceptions import IntegrationError
 from apps.people.models import ConfigurationError
 from apps.people.permissions import ADMINISTRATE_STUDENT_CRITICAL
@@ -99,6 +100,7 @@ class TeamsView(StaffPortalMixin, View):
         #FPORTALGLOBALVIEWS012-8012: Respuesta HTTP explícita o predeterminada: mantiene el contrato de página, fragmento o redirección.
         return render(request, 'portal/administracion/teams.html', {
             **team_grid_context(request.GET),
+            'catalog_teams': TeamsWorkspaceMirror.objects.all(),
             'purge_form': TeamPurgeForm(), 'team_operations': recent_team_operations(),
         })
 

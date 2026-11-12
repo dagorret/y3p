@@ -91,3 +91,18 @@ class MockSialRecord(models.Model):
     career_code = models.CharField(max_length=10)
     modality = models.CharField(max_length=10)
     commission = models.CharField(max_length=50, blank=True, null=True)
+
+
+class MockTeamChannel(models.Model):
+    """Canal persistente de desarrollo para conservar el espejo tras una sincronización."""
+
+    team = models.ForeignKey(MockTeam, verbose_name='Equipo', on_delete=models.CASCADE, related_name='channels')
+    channel_id = models.CharField('Identificador del canal', max_length=255, unique=True)
+    display_name = models.CharField('Nombre', max_length=255)
+    membership_type = models.CharField('Tipo de membresía', max_length=20,
+        choices=(('standard', 'Estándar'), ('private', 'Privado')))
+
+    class Meta:
+        verbose_name = 'Canal simulado'
+        verbose_name_plural = 'Canales simulados'
+        constraints = [models.CheckConstraint(condition=models.Q(membership_type__in=['standard', 'private']), name='ck_mock_channel_type')]

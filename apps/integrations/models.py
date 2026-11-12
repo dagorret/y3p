@@ -2,6 +2,7 @@
 
 import re
 import uuid
+from datetime import time
 
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -101,3 +102,96 @@ class AdmissionCourseRule(models.Model):
 
     def __str__(self):
         return f"{self.order}: {self.career_code or '*'} → {self.target_courses}"
+
+
+class TeamsWorkspaceMirror(models.Model):
+    """Equipo remoto consultable localmente, con contadores e índices analíticos."""
+
+    team_id = models.CharField('Identificador Teams', max_length=150, unique=True)
+    display_name = models.CharField('Nombre', max_length=255)
+    mail_nickname = models.CharField('Alias de correo', max_length=255, blank=True)
+    description = models.TextField('Descripción', blank=True)
+    career_code = models.CharField('Carrera', max_length=20, blank=True)
+    commission = models.CharField('Comisión', max_length=100, blank=True)
+    owners_count = models.PositiveIntegerField('Propietarios', default=0)
+    members_count = models.PositiveIntegerField('Miembros', default=0, db_index=True)
+    synced_at = models.DateTimeField('Sincronizado el')
+
+    class Meta:
+        ordering = ('display_name', 'team_id')
+        verbose_name = 'Equipo espejo'
+        verbose_name_plural = 'Equipos espejo'
+
+
+class TeamsChannelMirror(models.Model):
+    """Canal asociado por clave foránea; no acredita acceso individual a canales privados."""
+
+    channel_id = models.CharField('Identificador del canal', max_length=255, unique=True)
+    workspace = models.ForeignKey(TeamsWorkspaceMirror, verbose_name='Equipo', on_delete=models.CASCADE, related_name='channels')
+    display_name = models.CharField('Nombre', max_length=255)
+    membership_type = models.CharField('Tipo de membresía', max_length=20, choices=(('standard', 'Estándar'), ('private', 'Privado')))
+    synced_at = models.DateTimeField('Sincronizado el')
+
+    class Meta:
+        ordering = ('display_name', 'channel_id')
+        constraints = [models.CheckConstraint(condition=models.Q(membership_type__in=['standard', 'private']), name='ck_channel_mirror_type')]
+
+
+class TeamsMemberMirror(models.Model):
+    """Pivot relacional en lugar de JSON para pertenencias y análisis indexados.
+
+    La unicidad equipo/UPN evita duplicados. Los índices identidad/equipo y
+    equipo/rol permiten consultar pertenencias y propietarios mediante el ORM,
+    sin recorrer documentos JSON ni perder integridad referencial. Son índices
+    B-tree: aceleran búsquedas y agregaciones, sin prometer complejidad O(1).
+    Los invitados conservan su membresía aunque no exista una identidad local.
+    """
+
+    workspace = models.ForeignKey(TeamsWorkspaceMirror, verbose_name='Equipo', on_delete=models.CASCADE, related_name='members')
+    identity = models.ForeignKey('people.Identity', verbose_name='Identidad', on_delete=models.SET_NULL, null=True, blank=True, related_name='teams_memberships')
+    azure_user_id = models.CharField('Identificador Azure', max_length=150, db_index=True)
+    upn = models.CharField('UPN', max_length=255, db_index=True)
+    display_name = models.CharField('Nombre', max_length=255)
+    role = models.CharField('Rol', max_length=10, choices=(('owner', 'Propietario'), ('member', 'Miembro')), db_index=True)
+    synced_at = models.DateTimeField('Sincronizado el')
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['workspace', 'upn'], name='uniq_teams_member_workspace_upn'),
+            models.CheckConstraint(condition=models.Q(role__in=['owner', 'member']), name='ck_member_mirror_role'),
+        ]
+        indexes = [models.Index(fields=['identity', 'workspace'], name='ix_member_identity_workspace'),
+                   models.Index(fields=['workspace', 'role'], name='ix_member_workspace_role')]
+
+
+class MoodleCourseMirror(models.Model):
+    """Catálogo de cursos remoto, independiente de sus matrículas individuales."""
+
+    course_id = models.PositiveBigIntegerField('Identificador Moodle', unique=True)
+    shortname = models.CharField('Nombre corto', max_length=255, db_index=True)
+    fullname = models.CharField('Nombre completo', max_length=255)
+    category_name = models.CharField('Categoría', max_length=255, blank=True)
+    visible = models.BooleanField('Visible', default=True)
+    enrolled_count = models.PositiveIntegerField('Matriculados activos', default=0)
+    synced_at = models.DateTimeField('Sincronizado el')
+
+    class Meta:
+        ordering = ('shortname', 'course_id')
+
+
+class CatalogSyncState(models.Model):
+    """Agenda semanal y resultado por origen, con arrendamiento contra ejecuciones simultáneas."""
+
+    source = models.CharField('Origen', max_length=10, unique=True, choices=(('TEAMS', 'Teams'), ('MOODLE', 'Moodle')))
+    schedule_weekday = models.PositiveSmallIntegerField('Día semanal', default=5)
+    schedule_hour = models.TimeField('Hora local', default=time(1, 0))
+    last_run_at = models.DateTimeField('Última ejecución', null=True, blank=True)
+    next_run_at = models.DateTimeField('Próxima ejecución', null=True, blank=True, db_index=True)
+    last_status = models.CharField('Último resultado', max_length=10, blank=True, choices=(('SUCCEEDED', 'Completado'), ('FAILED', 'Fallido')))
+    items_synced = models.PositiveIntegerField('Elementos sincronizados', default=0)
+    last_error = models.TextField('Último error', blank=True)
+    run_token = models.UUIDField('Identificador de ejecución', null=True, blank=True)
+    lock_expires_at = models.DateTimeField('Vencimiento del arrendamiento', null=True, blank=True)
+
+    class Meta:
+        constraints = [models.CheckConstraint(condition=models.Q(schedule_weekday__gte=0, schedule_weekday__lte=6), name='ck_catalog_weekday')]

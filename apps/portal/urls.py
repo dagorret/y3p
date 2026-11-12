@@ -5,12 +5,16 @@ from django.contrib.auth.views import LoginView
 
 from .views import (
     AdministracionDashboardView,
+    QueryBuilderView,
     AdministracionSearchView,
     ExtensionDashboardView,
     PostgradoDashboardView,
 )
 from . import admin_views
 from . import global_views
+from .catalog_views import CatalogSyncView, CatalogChannelsView
+from .snippet_views import SnippetCreateView, SnippetDeleteView
+from .student_export import StudentExportView
 from .bulk_views import StudentBulkActionView
 from .team_views import TeamConsoleActionView, TeamMembersView
 
@@ -20,7 +24,13 @@ urlpatterns = [
     path('administracion/ingresar/', LoginView.as_view(
         template_name='portal/administracion/login.html', next_page='portal:administracion',
     ), name='administracion_login'),
+    path("administracion/sincronizacion/", CatalogSyncView.as_view(), name="catalog_sync"),
+    path("administracion/catalogos/canales/", CatalogChannelsView.as_view(), name="catalog_channels"),
+    path("administracion/vistas/", QueryBuilderView.as_view(), name="query_builder"),
     path("administracion/", AdministracionDashboardView.as_view(), name="administracion"),
+    path('administracion/snippets/guardar/', SnippetCreateView.as_view(), name='snippet_create'),
+    path('administracion/snippets/<int:snippet_id>/eliminar/', SnippetDeleteView.as_view(), name='snippet_delete'),
+    path('administracion/exportar/', StudentExportView.as_view(), name='student_export'),
     path('administracion/acciones-masivas/', StudentBulkActionView.as_view(), name='student_bulk_action'),
     path('administracion/personas/nueva/', global_views.GlobalCreationView.as_view(), name='person_create'),
     path('administracion/cuentas-funcionales/nueva/', global_views.FunctionalAccountCreationView.as_view(), name='functional_create'),
@@ -33,6 +43,8 @@ urlpatterns = [
     path('administracion/teams/<uuid:team_id>/configurar/', TeamConsoleActionView.as_view(operation='configure'), name='team_configure'),
     path('administracion/teams/<uuid:team_id>/actualizar/', TeamConsoleActionView.as_view(operation='refresh'), name='team_refresh'),
     path('administracion/buscar/', AdministracionSearchView.as_view(), name='administracion_buscar'),
+    path('administracion/personas/<int:identity_id>/', admin_views.Identity360View.as_view(), name='identity360_plural'),
+    path('administracion/persona/<int:identity_id>/actualizar/', admin_views.IdentityPlatformRefreshView.as_view(), name='identity_platform_refresh'),
     path('administracion/persona/<int:identity_id>/', admin_views.Identity360View.as_view(), name='identity360'),
     path('administracion/persona/<int:identity_id>/contacto/', admin_views.IdentityContactView.as_view(), name='identity_contact'),
     path('administracion/persona/<int:identity_id>/metadata/', admin_views.IdentityMetadataView.as_view(), name='identity_metadata'),
