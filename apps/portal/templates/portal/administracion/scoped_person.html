@@ -1,0 +1,11 @@
+{% extends "portal/administracion/base_administracion.html" %}
+{% block admin_content %}
+<a class="text-blue-700 underline" href="{{ grid_url }}">Volver a la consola</a>
+<section id="identity-card" class="mt-4 rounded-lg bg-white p-5">
+<h1 class="text-2xl font-bold">Ficha 360° · {{ identity }}</h1>
+<p>{{ identity.identifier }} · {{ identity.institutional_upn|default:"UPN pendiente" }}</p>
+<span title="{{ identity.health_reason }}" class="rounded bg-slate-100 px-3 py-1">{{ identity.health_label }}</span>
+<h2 class="mt-4 font-bold">Vinculaciones de {{ scope }}</h2>
+{% for affiliation in identity.grade_affiliations %}<p>{{ affiliation.reference }} · {{ affiliation.current_status.name }} · {{ affiliation.expires_at|default:"Indefinida" }}</p>{% endfor %}
+</section>
+{% endblock %}

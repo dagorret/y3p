@@ -386,6 +386,12 @@ class Identity(models.Model):
             ('can_view_student_360', 'Puede consultar la Ficha 360°, vinculaciones, cuentas e historial'),
             ('can_operate_student_daily', 'Puede ejecutar soporte diario de alumnos'),
             ('can_administrate_student_critical', 'Puede ejecutar administración crítica de alumnos'),
+            ('can_view_posgrado', 'Puede consultar Posgrado'),
+            ('can_operate_posgrado', 'Puede operar Posgrado'),
+            ('can_admin_posgrado', 'Puede administrar Posgrado'),
+            ('can_view_extension', 'Puede consultar Extensión'),
+            ('can_operate_extension', 'Puede operar Extensión'),
+            ('can_admin_extension', 'Puede administrar Extensión'),
         ]
         constraints = [
             #FID01-0040: Las identidades organizacionales no llevan apellido.

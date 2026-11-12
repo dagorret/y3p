@@ -15,6 +15,7 @@ from django.views import View
 from openpyxl import Workbook
 from openpyxl.cell import WriteOnlyCell
 
+from apps.people.scopes import scope_url
 from .query_parser import QuerySyntaxError
 from .snippet_services import resolve_query_params, visible_snippets
 from .permissions import StaffPortalMixin
@@ -26,8 +27,8 @@ class StudentExportView(StaffPortalMixin, View):
 
     def get(self, request):
         try:
-            params, _ = resolve_query_params(request.GET, visible_snippets(request.user))
-            queryset = student_queryset(params)
+            params, _ = resolve_query_params(request.GET, visible_snippets(request.user, scope=self.scope))
+            queryset = student_queryset(params, scope=self.scope)
         except QuerySyntaxError as exc:
             #FEXPORT03-8304: La fórmula inválida se rechaza sin exportar una consulta más amplia.
             return HttpResponseBadRequest('; '.join(exc.messages), content_type='text/plain; charset=utf-8')
@@ -44,7 +45,7 @@ class StudentExportView(StaffPortalMixin, View):
                       '\n'.join(timezone.localtime(a.expires_at).strftime('%d/%m/%Y %H:%M:%S')
                                 if a.expires_at else 'Indefinida' for a in affiliations),
                       HEALTH_LABELS[identity.health],
-                      request.build_absolute_uri(reverse('portal:identity360', args=[identity.pk]))]
+                      request.build_absolute_uri(scope_url(self.scope, 'detail', identity_id=identity.pk))]
             cells = []
             for value in values:
                 cell = WriteOnlyCell(sheet, value=value)

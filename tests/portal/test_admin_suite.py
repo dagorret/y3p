@@ -872,7 +872,7 @@ class StudentGridTests(TestCase):
         self.assertEqual(students.count(), 60)
         self.assertEqual(Affiliation.objects.filter(identity__in=students).count(), 60)
         self.assertEqual(MockAzureUser.objects.filter(upn__in=students.values('institutional_upn')).count(), 60)
-        self.assertEqual(MockMoodleEnrollment.objects.filter(course__shortname__in=['9040', '9041', '9042']).count(), 60)
+        self.assertEqual(MockMoodleEnrollment.objects.filter(course__shortname__in=['9040', '9041', '9042'], user__username__startswith='a95').count(), 60)
         self.assertEqual(OutboxEvent.objects.filter(payload={'seed': 'seed_dev_students'}).count(), 60)
         self.assertEqual(Counter(student_queryset({}).filter(pk__in=students).values_list('health', flat=True)),
                          {'green': 30, 'yellow': 12, 'orange': 12, 'red': 6})
@@ -1523,7 +1523,7 @@ class ReleaseLayoutSeedTests(TestCase):
             self.assertEqual(team.owners_count, team.members.filter(role='owner').count())
             self.assertEqual(set(team.channels.values_list('display_name', 'membership_type')), {('General', 'standard'), ('Comisión 1', 'private')})
         self.assertEqual((MockTeam.objects.count(), MockTeamChannel.objects.count(), MockTeamMember.objects.count()), (3, 6, 61))
-        self.assertEqual(MockMoodleEnrollment.objects.count(), 60)
+        self.assertEqual(MockMoodleEnrollment.objects.filter(user__username__startswith='a95').count(), 60)
         with patch('requests.sessions.Session.request', side_effect=AssertionError('La semilla y los mocks no consultan la red.')):
             self.assertEqual(sync_external_catalogs(graph=MockGraphClient(), moodle=MockMoodleClient()), {'TEAMS': 'SUCCEEDED', 'MOODLE': 'SUCCEEDED'})
         self.assertEqual((TeamsWorkspaceMirror.objects.count(), TeamsChannelMirror.objects.count(), TeamsMemberMirror.objects.count(), MoodleCourseMirror.objects.count()), (3, 6, 61, 3))
@@ -1559,4 +1559,5 @@ class ReleaseLayoutSeedTests(TestCase):
         parser.feed(builder.content.decode())
         active = [attrs['href'] for tag, attrs in parser.tags if tag == 'a' and attrs.get('aria-current') == 'page']
         self.assertEqual(active, [reverse('portal:query_builder')])
-        self.assertContains(self.client.get(reverse('portal:postgrado')), 'max-w-7xl')
+        self.admin.groups.add(Group.objects.get(name='adm_posgrado_rol_jefe'))
+        self.assertNotContains(self.client.get(reverse('portal:postgrado')), 'max-w-7xl')

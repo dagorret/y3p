@@ -75,10 +75,15 @@ def _run_support(event, simulated):
     if event.requested_by is None or operation not in ('credentials', 'moodle_enrol', 'license', 'notification'):
         #FPROVISIONINGORCHESTRATOR004-8004: Origina PermanentProvisioningError; el llamador conserva la causa y decide su tratamiento.
         raise PermanentProvisioningError('La solicitud administrativa no es válida.')
+    from apps.people.scopes import SCOPES
+    scope = event.payload.get('scope', 'GRADO')
+    #FSCOPEDWORKER01-10604: El ámbito de una orden SUPPORT debe coincidir con su vinculación persistida.
+    if scope not in SCOPES or event.affiliation.profile_type.code != SCOPES[scope][0]:
+        raise PermanentProvisioningError('El ámbito de la orden no coincide con su vinculación.')
     checkpoint = _checkpoint_value(event.pk, 'support')
     if checkpoint.get('status') == 'CONFIRMED':
         return _mark_terminal(event.pk, simulated=checkpoint.get('simulated', False))
-    result = perform_support(event.identity_id, operation, user=event.requested_by, dry_run=simulated,
+    result = perform_support(event.identity_id, operation, user=event.requested_by, dry_run=simulated, scope=event.payload.get('scope', 'GRADO'),
                              **event.payload.get('support_options', {}))
     _save_checkpoint(event.pk, 'support', 'CONFIRMED', simulated=result.simulated,
                      details={'action': result.action, 'batch_id': event.payload.get('batch_id')})
@@ -149,10 +154,11 @@ def _run_provision(event_id, event, graph, moodle, mailer, simulated, enqueue_mo
         return OutboxEvent.Status.WAITING_SUBTASK
 
     if not _checkpoint_complete(event_id, "password_and_mail"):
-        if not graph_state.get("details", {}).get("created", False):
-            #FSRV07-6007: Las cuentas existentes no cambian de clave ni reciben credenciales nuevas.
+        if not graph_state.get("details", {}).get("created", False) and not payload.get("send_welcome", False):
+            #FSRV07-6007: Sin una nueva bienvenida explícita, las cuentas existentes conservan sus credenciales.
             _save_checkpoint(event_id, "password_and_mail", "SKIPPED_EXISTING_USER", simulated=simulated)
         else:
+            #FSCOPEDWELCOME01-10502: La confirmación académica solicita bienvenida con credenciales como paso reanudable.
             _send_credentials(event_id, graph, mailer, payload, simulated)
 
     #FSRV08-6008: La simulación finaliza en un estado diferente del éxito real.
@@ -161,6 +167,12 @@ def _run_provision(event_id, event, graph, moodle, mailer, simulated, enqueue_mo
 
 def _run_suspend(event_id, event, graph, moodle, simulated, enqueue_moodle):
     """Retira accesos Moodle de esta vinculación y conserva los accesos compartidos requeridos."""
+
+    if not event.payload.get('upn'):
+        #FTTLSUSPEND03-10605: Una preinscripción sin UPN todavía no identifica accesos remotos que puedan suspenderse.
+        for step in ('moodle', 'license', 'graph_disable'):
+            _save_checkpoint(event_id, step, 'SKIPPED_NO_UPN', simulated=simulated)
+        return _mark_terminal(event_id, simulated=simulated)
 
     if not _checkpoint_complete(event_id, "moodle"):
         _mark_waiting_subtask(event_id)
@@ -172,6 +184,12 @@ def _run_suspend(event_id, event, graph, moodle, simulated, enqueue_moodle):
 
             current_app.send_task("provisioning.moodle_step", args=[event_id], queue="moodle")
         return OutboxEvent.Status.WAITING_SUBTASK
+
+    if graph.get_user(event.payload.get('upn', '')) is None:
+        #FTTLSUSPEND01-10602: Una preinscripción nunca aprovisionada no requiere retirar licencias ni deshabilitar cuentas ausentes.
+        _save_checkpoint(event_id, 'license', 'SKIPPED_USER_MISSING', simulated=simulated)
+        _save_checkpoint(event_id, 'graph_disable', 'SKIPPED_USER_MISSING', simulated=simulated)
+        return _mark_terminal(event_id, simulated=simulated)
 
     #FSRV10-6010: Consulta las otras vinculaciones activas antes de decidir sobre accesos compartidos.
     other_active = Affiliation.objects.filter(
@@ -324,6 +342,10 @@ def _perform_moodle(event, moodle):
     course = moodle.get_course_by_shortname(shortname)
     if course is None:
         return {"status": "SKIPPED_COURSE_MISSING", "simulated": user.simulated, "details": {}}
+    if Affiliation.objects.filter(identity_id=event.identity_id, is_active=True, reference=shortname,
+                                  profile_type__code__in=['ALUMNO', 'POSGRADO', 'EXTENSION']).exclude(pk=event.affiliation_id).exists():
+        #FTTLSUSPEND02-10603: Una matrícula compartida por otra vinculación activa no se retira.
+        return {'status': 'SKIPPED_STILL_REQUIRED', 'simulated': False, 'details': {}}
     result = moodle.unenrol_user(user.id, int(course["id"]), role_id=5)
     return {
         "status": "CONFIRMED",

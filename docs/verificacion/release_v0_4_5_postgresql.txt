@@ -1,0 +1,176 @@
+$ /home/carlos/work/y3p/.venv/bin/python -c import sys,django; assert sys.version_info[:3] == (3,12,15); assert django.get_version() == "6.1.2"; print("Python:",sys.version); print("Django:",django.get_version())
+Python: 3.12.15 (main, Oct 21 2026, 17:47:06) [Clang 23.1.3 ]
+Django: 6.1.2
+Código de salida: 0
+
+$ /home/carlos/work/y3p/.venv/bin/python manage.py shell -c from django.db import connection; connection.ensure_connection(); assert connection.vendor == "postgresql" and connection.pg_version == 160015; print("PostgreSQL:",connection.pg_version)
+38 objects imported automatically (use -v 2 for details).
+
+PostgreSQL: 160015
+Código de salida: 0
+
+$ /home/carlos/work/y3p/.venv/bin/python manage.py makemigrations --check --dry-run
+No changes detected
+Código de salida: 0
+
+$ /home/carlos/work/y3p/.venv/bin/python manage.py migrate
+Operations to perform:
+  Apply all migrations: admin, auth, contenttypes, integrations, people, platform_mocks, portal, sessions
+Running migrations:
+  No migrations to apply.
+Código de salida: 0
+
+$ /home/carlos/work/y3p/.venv/bin/python manage.py showmigrations people portal
+people
+ [X] 0001_initial
+ [X] 0002_seed_lifecycle_metamodel
+ [X] 0003_sagastatusdefinition_provisioning_action_and_more
+ [X] 0004_seed_provisioning_actions
+ [X] 0005_seed_portal_profiles
+ [X] 0006_seed_flexible_portal_statuses
+ [X] 0007_digitalaccount
+ [X] 0008_sagastatusdefinition_platform_and_collaboration
+ [X] 0009_alter_sagastatusdefinition_target_platform
+ [X] 0010_identity_metadata_personalprofile_phone
+ [X] 0011_seed_manual_administration_profiles
+ [X] 0012_alter_identity_options
+ [X] 0013_seed_student_administration_roles
+ [X] 0014_digitalaccount_observations_outboxevent_requested_by_and_more
+ [X] 0015_alter_identity_options
+ [X] 0016_scoped_academic_roles_and_transitions
+ [X] 0017_expiration_outbox_actions
+portal
+ [X] 0001_initial
+ [X] 0002_adminquerysnippet_scope
+Código de salida: 0
+
+$ /home/carlos/work/y3p/.venv/bin/python manage.py seed_dev_students --count 60
+Semilla sincronizada: 60 alumnos. Verde: 30, Amarillo: 12, Naranja: 12, Rojo: 6.
+Espejos sembrados: 3 equipos, 6 canales, 61 miembros y 3 cursos.
+Ámbitos adicionales: POSGRADO=20, EXTENSION=20; alternan PRE y ALUMNO.
+Código de salida: 0
+
+$ /home/carlos/work/y3p/.venv/bin/python manage.py seed_dev_students --count 60
+Semilla sincronizada: 60 alumnos. Verde: 30, Amarillo: 12, Naranja: 12, Rojo: 6.
+Espejos sembrados: 3 equipos, 6 canales, 61 miembros y 3 cursos.
+Ámbitos adicionales: POSGRADO=20, EXTENSION=20; alternan PRE y ALUMNO.
+Código de salida: 0
+
+$ /home/carlos/work/y3p/.venv/bin/python manage.py check
+System check identified no issues (0 silenced).
+Código de salida: 0
+
+$ /home/carlos/work/y3p/.venv/bin/python manage.py test --noinput
+Creating test database for alias 'default'...
+.........................................................integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+........integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+..................................................................integration_operation_simulated
+integration_operation_simulated
+........................................................integration_operation_simulated
+.integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+...........integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+integration_operation_simulated
+......
+----------------------------------------------------------------------
+Ran 205 tests in 64.702s
+
+OK
+Destroying test database for alias 'default'...
+Found 205 test(s).
+System check identified no issues (0 silenced).
+
+MASIVIDAD: 150 eventos SUCCEEDED; 150 cuentas licenciadas; 550 matrículas; 500 grupos; ingesta=3.347s; procesamiento=14.914s; pasadas=4; sin bloqueos ni transacciones pendientes.
+Eventos simulados que se rearmarían: 1.
+Eventos rearmados: 1 de 1.
+Código de salida: 0
+
+$ /home/carlos/work/y3p/.venv/bin/python manage.py shell -c from apps.people.models import Affiliation
+from django.db.models import Count
+for profile in ['ALUMNO','POSGRADO','EXTENSION']:
+    rows = Affiliation.objects.filter(profile_type__code=profile, identity__metadata__seed__in=['seed_dev_students','seed_dev_academic_students'])
+    print(profile, 'total:', rows.count(), 'estados:', dict(rows.values_list('current_status__code').annotate(total=Count('pk'))))
+38 objects imported automatically (use -v 2 for details).
+
+ALUMNO total: 60 estados: {'ALUMNO': 15, 'ASP': 15, 'INGRE': 15, 'PRE': 15}
+POSGRADO total: 20 estados: {'ALUMNO': 10, 'PRE': 10}
+EXTENSION total: 20 estados: {'ALUMNO': 10, 'PRE': 10}
+Código de salida: 0
+
+Reporte funcional de v0.4.5
+Base: main / v0.4.3 / 81f5ff3. Rama: feature/postgrado-extension-outbox-monitor.
+
+Migraciones aplicadas:
+people.0015_alter_identity_options: capacidades académicas propias.
+people.0016_scoped_academic_roles_and_transitions: grupos por ámbito y reglas PRE → ALUMNO, PRE → BAJA_PRE y ALUMNO/REGULAR → BAJA.
+people.0017_expiration_outbox_actions: las bajas TTL de preinscripciones de Grado también emiten SUSPEND.
+portal.0002_adminquerysnippet_scope: aislamiento de las vistas guardadas.
+
+Roles y aislamiento:
+Grado conserva adm_alumnos_rol_jefe, adm_alumnos_rol_operador y adm_alumnos_rol_admin.
+Posgrado utiliza adm_posgrado_rol_jefe, adm_posgrado_rol_operador y adm_posgrado_rol_admin.
+Extensión utiliza adm_extension_rol_jefe, adm_extension_rol_operador y adm_extension_rol_admin.
+Los permisos can_view, can_operate y can_admin de cada ámbito forman una jerarquía propia; un rol de Grado no concede acceso a los otros ámbitos. El superusuario institucional mantiene acceso a todos.
+El servidor fija el ámbito por ruta: las consultas, metadatos de filtros, snippets, selección de alumnos, fichas, Excel y órdenes por correo se restringen al perfil correspondiente. Los intentos de acceso cruzado a rutas, identidades o lotes devuelven 403 antes de escribir.
+Las consolas /dash/postgrado/ y /dash/extension/ reutilizan el layout full-width, la barra lateral, HTMX, siete consultas de datos por página, precargas anti-N+1 y orden last_name/first_name/id. Las consultas de autenticación no forman parte de ese conteo.
+Los formularios anteriores pasan a /dash/postgrado/inscripcion/ y /dash/extension/inscripcion/, también sujetos a permisos de operación del ámbito. PRE ya no emite aprovisionamiento durante el alta; la confirmación posterior lo emite atómicamente.
+
+Confirmación:
+El lote contiene entre 1 y 200 identidades y se valida completo antes de modificarlo. Se bloquean identidades y vinculaciones en orden estable. El dominio confirma PRE → ALUMNO, TTL, historial con actor y un evento PROVISION por vinculación. Las filas ya confirmadas u otros estados se omiten sin duplicar eventos.
+El evento conserva el operador solicitante y la política de cuenta/licencia/matrícula. La bienvenida con credenciales es un paso recuperable de la saga, enviado por MailerClient; cuando se solicita para una cuenta existente genera una nueva clave temporal. Ningún secreto se almacena en el Outbox.
+Las notificaciones SUPPORT conservan el ámbito y vuelven a comprobar permisos en el trabajador; una revocación impide llamadas externas posteriores.
+
+TTL:
+La tarea people.process_expired_affiliations se configura con crontab(minute="*/15") en la cola provisioning. Lote predeterminado: 500; máximo permitido: 2000.
+EXISTS excluye huérfanos sin regla is_expiration; skip_locked evita esperar por filas ocupadas. Cada vinculación se confirma en una transacción breve y revalida su estado y vencimiento. Repetir la tarea no duplica historial ni eventos.
+La suspensión preserva cuenta, licencia o matrícula cuando otra vinculación activa aún los requiere. Una preinscripción sin UPN, o sin cuenta remota aprovisionada, finaliza registrando omisiones explícitas sin intentar suspender recursos inexistentes.
+
+Monitor:
+/dash/administracion/outbox/ ofrece conteos PENDING, PROCESSING, SUCCEEDED y FAILED, filtros por estado/acción y listado paginado con identidad, ámbito, error e intentos. Los operadores solo observan sus ámbitos; el portal de Grado conserva además los tipos institucionales históricos.
+El badge de la barra lateral consulta PENDING, RETRY_SCHEDULED y FAILED cada diez segundos mediante una solicitud HTMX independiente, sin añadir consultas síncronas a la grilla.
+El rearme exige administración crítica del ámbito de cada evento. Solo FAILED vuelve a PENDING, reinicia el presupuesto de intentos y conserva checkpoints y solicitante original. LogEntry registra al administrador, evento y cantidad de intentos anterior; el nuevo despacho se solicita tras confirmar la transacción.
+
+Semilla idempotente con --count 60:
+GRADO/ALUMNO: 60 identidades; estados ALUMNO=15, ASP=15, INGRE=15 y PRE=15.
+POSGRADO: 20 identidades; PRE=10 y ALUMNO=10.
+EXTENSION: 20 identidades; PRE=10 y ALUMNO=10.
+El parámetro count sigue representando los alumnos de Grado y agrega un tercio de ese número, con mínimo dos, por ámbito adicional. Los confirmados adicionales poseen evidencia mock y eventos SUCCEEDED; las preinscripciones esperan confirmación.
+Se conservan los tres equipos, seis canales y 61 membresías de desarrollo del release anterior. No se enviaron correos reales al ejecutar la semilla.
+
+Pruebas superadas: 205 en total, incluidas 22 nuevas en tests/portal/test_academic_outbox.py.
+Cobertura nueva: matriz de autorizaciones de los tres ámbitos; bloqueo 403 en fichas, operaciones, exportaciones y rutas de inscripción; siete consultas y cero consultas al renderizar; filtros, paginación y Excel; aislamiento de snippets y fichas compartidas.
+Confirmación: idempotencia, omisión de confirmados, reversión del lote ante fallo del segundo evento, historial y actor, notificaciones con sustitución de variables y revocación posterior de permisos.
+Saga: bienvenida a cuentas nuevas y existentes, matrícula Moodle y asignación de licencia cuando corresponde, sin duplicar correo después de confirmar checkpoints.
+TTL: agenda de quince minutos, lote acotado, huérfanos, idempotencia, suspensión de Grado, cuentas ausentes y preinscripciones sin UPN, conservación de accesos compartidos.
+Monitor: resumen y badge aislados, filtros y paginación, protección CSRF, rechazo de roles sin capacidad crítica, selección cruzada atómica, rearme auditado con checkpoints conservados y eventos institucionales históricos.
+
+Operación: la periodicidad necesita el broker configurado, Celery Beat y trabajadores de las colas provisioning/moodle activos. La verificación utilizó PostgreSQL real y proveedores simulados; no inició procesos persistentes ni consultó tenants reales.
