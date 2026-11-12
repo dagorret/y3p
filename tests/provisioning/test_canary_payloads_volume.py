@@ -14,6 +14,7 @@ import re
 import smtplib
 from collections import Counter, deque
 from datetime import timedelta
+from types import SimpleNamespace
 from urllib.parse import unquote
 
 import requests
@@ -23,6 +24,7 @@ from django.utils import timezone
 
 from apps.integrations.services.graph import MicrosoftGraphClient
 from apps.integrations.services.mailer import MailerClient
+from apps.integrations.models import AdmissionCourseRule
 from apps.integrations.services.moodle import MoodleRestClient
 from apps.people.models import (
     Affiliation,
@@ -162,6 +164,10 @@ class MoodleFakeTransport:
         self.unenrol_calls = []
         self.fail_once_usernames = set()
         self._sequence = 0
+        self.groups = {}          # course_id -> {name: group_id}
+        self.group_catalog = {}   # group_id -> (course_id, name)
+        self.group_members = []   # (group_id, user_id) en orden de llegada
+        self._group_sequence = 500
 
     def post(self, url, data=None, timeout=None, json=None, headers=None):
         self.capture.append({
@@ -206,6 +212,21 @@ class MoodleFakeTransport:
             key = (data["enrolments[0][userid]"], data["enrolments[0][courseid]"], data["enrolments[0][roleid]"])
             self.unenrol_calls.append(key)
             self.enrollments.discard(key)
+            return FakeResponse(200, None)
+        if function == "core_group_get_course_groups":
+            course_id = data["courseid"]
+            body = [{"id": group_id, "name": name}
+                    for name, group_id in self.groups.get(course_id, {}).items()]
+            return FakeResponse(200, body)
+        if function == "core_group_create_groups":
+            course_id = data["groups[0][courseid]"]
+            name = data["groups[0][name]"]
+            self._group_sequence += 1
+            self.groups.setdefault(course_id, {})[name] = self._group_sequence
+            self.group_catalog[self._group_sequence] = (course_id, name)
+            return FakeResponse(200, [{"id": self._group_sequence, "name": name}])
+        if function == "core_group_add_group_members":
+            self.group_members.append((data["members[0][groupid]"], data["members[0][userid]"]))
             return FakeResponse(200, None)
         raise AssertionError(f"Función Moodle no esperada: {function}")
 
@@ -322,6 +343,9 @@ class CanaryPayloadVolumeTests(TransactionTestCase):
         alumno = status(self.grado, "ALUMNO", name="Alumno regular", is_initial=False,
                         is_terminal=False, default_ttl_days=None,
                         provisioning_action="PROVISION", requires_collaboration_license=True)
+        status(self.grado, "INGRE", name="Ingresante", is_initial=False, is_terminal=False,
+               default_ttl_days=365, provisioning_action="PROVISION",
+               requires_collaboration_license=True)
         baja_def = status(self.grado, "BAJA_DEF", name="Baja definitiva", is_initial=False,
                           is_terminal=True, default_ttl_days=None,
                           provisioning_action="TERMINATE", requires_collaboration_license=False)
@@ -370,6 +394,33 @@ class CanaryPayloadVolumeTests(TransactionTestCase):
             reason="Confirmación académica canario",
         )
 
+    def _build_stack(self, courses):
+        """Clientes reales montados sobre transportes instrumentados compartiendo captura."""
+
+        capture = []
+        graph_transport = GraphFakeTransport(capture)
+        moodle_transport = MoodleFakeTransport(capture, courses=courses)
+        smtp_outbox = SmtpFakeOutbox()
+        graph = MicrosoftGraphClient(
+            tenant_id="tenant-canario", client_id="app-canario",
+            client_secret="client-secret-canario", dry_run=False,
+            session=graph_transport, graph_base_url=GRAPH_BASE,
+        )
+        moodle = MoodleRestClient(
+            base_url=MOODLE_BASE, token="wstoken-canario", dry_run=False,
+            session=moodle_transport,
+        )
+        mailer = MailerClient(
+            host="smtp.eco.test", port=587, username="svc.cuentas",
+            password="smtp-secret-canario", from_email="cuentas@eco.unrc.edu.ar",
+            dry_run=False, smtp_factory=smtp_outbox.factory,
+        )
+        return SimpleNamespace(
+            capture=capture, graph_transport=graph_transport,
+            moodle_transport=moodle_transport, smtp=smtp_outbox,
+            graph=graph, moodle=moodle, mailer=mailer,
+        )
+
     def _drain_outbox(self, graph, moodle, mailer, *, max_passes=15):
         moodle_queue = deque()
         passes = 0
@@ -402,28 +453,14 @@ class CanaryPayloadVolumeTests(TransactionTestCase):
 
     # ------------------------------------------------------------------- test
     def test_100_canary_ingresos_payloads_and_accounting(self):
-        capture = []
-        graph_transport = GraphFakeTransport(capture)
-        moodle_transport = MoodleFakeTransport(capture, courses={
+        stack = self._build_stack(courses={
             "2": 101, "3": 102, "MBA-FIN-2026": 201,
             "EXT-DIPLO-DATOS": 301, "EXT-TALLER-VENC": 302,
         })
-        smtp_outbox = SmtpFakeOutbox()
-
-        graph = MicrosoftGraphClient(
-            tenant_id="tenant-canario", client_id="app-canario",
-            client_secret="client-secret-canario", dry_run=False,
-            session=graph_transport, graph_base_url=GRAPH_BASE,
-        )
-        moodle = MoodleRestClient(
-            base_url=MOODLE_BASE, token="wstoken-canario", dry_run=False,
-            session=moodle_transport,
-        )
-        mailer = MailerClient(
-            host="smtp.eco.test", port=587, username="svc.cuentas",
-            password="smtp-secret-canario", from_email="cuentas@eco.unrc.edu.ar",
-            dry_run=False, smtp_factory=smtp_outbox.factory,
-        )
+        capture = stack.capture
+        graph_transport, moodle_transport = stack.graph_transport, stack.moodle_transport
+        smtp_outbox = stack.smtp
+        graph, moodle, mailer = stack.graph, stack.moodle, stack.mailer
 
         dnis = [f"990000{n:02d}" for n in range(1, 101)]
         block = lambda i: dnis[(i - 1) * 10: i * 10]
@@ -544,6 +581,51 @@ class CanaryPayloadVolumeTests(TransactionTestCase):
         self.assertEqual(len(set(moodle_transport.enrol_calls)), 110,
                          "Hubo matrículas duplicadas en Moodle.")
         self.assertEqual(len(moodle_transport.enrollments), 90)
+
+        # =============== MAPEO CURSO→AULA EN MOODLE ===============
+        expected_course_ids = {"2": 101, "3": 102, "MBA-FIN-2026": 201,
+                               "EXT-DIPLO-DATOS": 301, "EXT-TALLER-VENC": 302}
+        moodle_requests = [r for r in capture if r["service"] == "moodle_rest"]
+        course_lookups = [r for r in moodle_requests
+                          if r["body"]["wsfunction"] == "core_course_get_courses_by_field"]
+        self.assertTrue(all(r["body"]["field"] == "shortname" for r in course_lookups))
+        # 110 resoluciones de provisión + 20 previas a desmatricular (perfiles 8 y 9).
+        self.assertEqual(
+            Counter(r["body"]["value"] for r in course_lookups),
+            Counter({"2": 80, "3": 10, "MBA-FIN-2026": 10,
+                     "EXT-DIPLO-DATOS": 10, "EXT-TALLER-VENC": 20}),
+        )
+        # Toda matrícula viaja con roleid=5 y un courseid ya resuelto por shortname.
+        resolved_course_ids = set()
+        for request_record in moodle_requests:
+            function = request_record["body"]["wsfunction"]
+            if function == "core_course_get_courses_by_field":
+                resolved_course_ids.add(expected_course_ids[request_record["body"]["value"]])
+            elif function == "enrol_manual_enrol_users":
+                self.assertEqual(request_record["body"]["enrolments[0][roleid]"], 5)
+                self.assertIn(request_record["body"]["enrolments[0][courseid]"], resolved_course_ids,
+                              "Matrícula enviada con courseid no resuelto previamente.")
+        # Correspondencia 1 a 1: cada afiliación cae exactamente en su aula destino,
+        # con el userid retornado por Moodle en el alta de ese usuario.
+        enrol_counter = Counter(moodle_transport.enrol_calls)
+        for affiliation in Affiliation.objects.select_related("identity"):
+            moodle_user_id = moodle_transport.users[affiliation.identity.institutional_upn]["id"]
+            self.assertEqual(
+                enrol_counter[(moodle_user_id, expected_course_ids[affiliation.reference], 5)], 1,
+                f"Afiliación {affiliation.pk} fuera de su aula destino.",
+            )
+        self.assertEqual(sum(enrol_counter.values()), 110)
+        # Sin cruces entre ámbitos: lo matriculado por usuario es exactamente
+        # el conjunto de referencias de sus afiliaciones, y nada más.
+        for username, moodle_user in moodle_transport.users.items():
+            references = set(Affiliation.objects.filter(
+                identity__institutional_upn=username).values_list("reference", flat=True))
+            enrolled = {course for (user_id, course, _) in moodle_transport.enrol_calls
+                        if user_id == moodle_user["id"]}
+            self.assertEqual(enrolled, {expected_course_ids[ref] for ref in references})
+        # Estos 10 perfiles no llevan comisión: ninguna función core_group_* viajó.
+        self.assertEqual(
+            [r for r in moodle_requests if r["body"]["wsfunction"].startswith("core_group_")], [])
 
         self.assertEqual(len(smtp_outbox.attempts), 100)
         self.assertEqual(len(smtp_outbox.delivered), 90)
@@ -695,3 +777,64 @@ class CanaryPayloadVolumeTests(TransactionTestCase):
         print(json.dumps(moodle_example, indent=2, ensure_ascii=False))
         print("\n===== MENSAJE SMTP (sanitizado) =====")
         print(json.dumps(smtp_example, indent=2, ensure_ascii=False))
+
+    def test_ingre_commission_group_mapping(self):
+        """INGRE con comisión: cursos por regla, roleid=5 y grupos sin cruces de ámbito."""
+
+        AdmissionCourseRule.objects.all().delete()
+        for order, pattern, group in ((10, "COMISION 1", "COMISION 1"),
+                                      (20, "COMISION 2", "COMISION 2")):
+            AdmissionCourseRule.objects.create(
+                order=order, career_code="2", commission_pattern=pattern,
+                target_courses="ING-NIV-2026,ING-MAT-2026", target_group=group,
+            )
+        stack = self._build_stack(courses={"ING-NIV-2026": 401, "ING-MAT-2026": 402})
+        students = (("99000901", "COMISION 1"), ("99000902", "COMISION 2"))
+        for dni, commission in students:
+            identity = self._person(dni, "Nadia", f"Ingresante {dni[-2:]}")
+            create_affiliation(
+                identity, self.grado, changed_by="canario:ingreso",
+                reason="Ingreso con comisión", initial_status_code="INGRE",
+                commission=commission, reference="2", modality="PRESENCIAL",
+            )
+        self._drain_outbox(stack.graph, stack.moodle, stack.mailer)
+        self.assertEqual(
+            OutboxEvent.objects.filter(status=OutboxEvent.Status.SUCCEEDED).count(), 2)
+
+        transport = stack.moodle_transport
+        moodle_requests = [r for r in stack.capture if r["service"] == "moodle_rest"]
+        lookups = Counter(r["body"]["value"] for r in moodle_requests
+                          if r["body"]["wsfunction"] == "core_course_get_courses_by_field")
+        self.assertEqual(lookups, Counter({"ING-NIV-2026": 2, "ING-MAT-2026": 2}))
+        for dni, commission in students:
+            user_id = transport.users[f"a{dni}@eco.unrc.edu.ar"]["id"]
+            # Matrículas exactas en los dos cursos resueltos por la regla de ingreso.
+            self.assertEqual(
+                {key for key in transport.enrol_calls if key[0] == user_id},
+                {(user_id, 401, 5), (user_id, 402, 5)},
+            )
+            # En cada aula, el alumno queda solo en el grupo de SU comisión.
+            member_groups = {group_id for (group_id, member_id) in transport.group_members
+                             if member_id == user_id}
+            self.assertEqual(
+                {transport.group_catalog[group_id] for group_id in member_groups},
+                {(401, commission), (402, commission)},
+            )
+        created = [r for r in moodle_requests
+                   if r["body"]["wsfunction"] == "core_group_create_groups"]
+        self.assertEqual(
+            Counter((r["body"]["groups[0][courseid]"], r["body"]["groups[0][name]"]) for r in created),
+            Counter({(401, "COMISION 1"): 1, (402, "COMISION 1"): 1,
+                     (401, "COMISION 2"): 1, (402, "COMISION 2"): 1}),
+        )
+        add_calls = [r for r in moodle_requests
+                     if r["body"]["wsfunction"] == "core_group_add_group_members"]
+        self.assertEqual(len(add_calls), 4)
+        self.assertEqual(
+            {(r["body"]["members[0][groupid]"], r["body"]["members[0][userid]"]) for r in add_calls},
+            set(transport.group_members),
+        )
+        example = copy.deepcopy(add_calls[0])
+        example["body"]["wstoken"] = "[REDACTADO]"
+        print("\n===== PAYLOAD GRUPO MOODLE (core_group_add_group_members, sanitizado) =====")
+        print(json.dumps(example, indent=2, ensure_ascii=False))
