@@ -155,8 +155,9 @@ class MailerClient(BaseIntegrationClient):
         #FINTEGRATIONSSERVICESMAILER004-8004: Trata el fallo en este límite y conserva la política de respuesta o recuperación.
         except Exception as error:
             #FMAIL12-4012: Captura renderizado, configuración y SMTP para no abortar worker.
-            self.logger.exception(
-                "mail_delivery_failed",
+            #FMAILSECRETS01-10801: No registra el mensaje remoto ni su traceback: ambos pueden contener cuerpo SMTP o credenciales.
+            self.logger.error(
+                "No se pudo entregar el correo.",
                 extra={
                     "integration": self.service_name,
                     "operation": "send_email",
@@ -169,7 +170,7 @@ class MailerClient(BaseIntegrationClient):
                 subject=subject,
                 success=False,
                 simulated=False,
-                error_message=f"{error.__class__.__name__}: {error}",
+                error_message=f"{error.__class__.__name__}: No se pudo entregar el correo.",
             )
 
     def send_credentials_email(self, recipient: str, full_name: str, upn: str, password: str):

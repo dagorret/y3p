@@ -28,21 +28,38 @@ def authorized_scopes(user, level='operate'):
     return [scope for scope in SCOPES if has_scope_permission(user, scope, level)]
 
 
-def visible_events(user):
-    scopes = authorized_scopes(user)
-    if 'GRADO' in scopes:
-        #FMONITOR08-10414: El portal histórico conserva tipos institucionales, pero excluye ámbitos académicos no concedidos.
-        excluded = [SCOPES[scope][0] for scope in ('POSGRADO', 'EXTENSION') if scope not in scopes]
-        return OutboxEvent.objects.exclude(affiliation__profile_type__code__in=excluded)
-    profiles = [SCOPES[scope][0] for scope in scopes]
-    return OutboxEvent.objects.filter(affiliation__profile_type__code__in=profiles)
+def monitor_scope(user, scope=None):
+    """Resuelve un solo ámbito para cada operador; solo el superusuario puede mezclarlos."""
+    allowed = authorized_scopes(user)
+    #FMONITORSCOPE01-10703: Tener capacidades en varios ámbitos no equivale a ser administrador global.
+    if not allowed:
+        raise PermissionDenied('El monitor requiere permisos de operación académica.')
+    if user.is_superuser and not scope:
+        return None
+    active = scope or allowed[0]
+    if active not in allowed:
+        #FMONITORSCOPE02-10704: Un selector manipulado no amplía la visibilidad de eventos.
+        raise PermissionDenied('No tiene permiso para consultar el Outbox de ese ámbito.')
+    return active
+
+
+def visible_events(user, *, scope=None):
+    """Grado incluye eventos institucionales; cada otro ámbito consulta solo sus vinculaciones."""
+    active = monitor_scope(user, scope)
+    if active is None:
+        return OutboxEvent.objects.all()
+    if active == 'GRADO':
+        #FMONITOR08-10414: Grado nunca mezcla Posgrado o Extensión, incluso con permisos adicionales.
+        return OutboxEvent.objects.exclude(affiliation__profile_type__code__in=['POSGRADO', 'EXTENSION'])
+    return OutboxEvent.objects.filter(affiliation__profile_type__code=SCOPES[active][0])
 
 
 @transaction.atomic
-def rearm_failed_events(event_ids, *, user):
+def rearm_failed_events(event_ids, *, user, scope=None):
     #FMONITOR06-10412: Incluso un POST vacío de rearme requiere capacidad crítica.
     if not authorized_scopes(user, 'admin'):
         raise PermissionDenied('El rearme requiere permisos de administración crítica.')
+    active = monitor_scope(user, scope)
     ids = sorted(set(event_ids))
     #FMONITOR01-10401: El límite evita operaciones masivas sin cota desde el navegador.
     if not 1 <= len(ids) <= 200:
@@ -53,8 +70,11 @@ def rearm_failed_events(event_ids, *, user):
     if len(events) != len(ids):
         raise PermissionDenied('La selección contiene eventos no autorizados.')
     for event in events:
-        scope = next((scope for scope, definition in SCOPES.items() if definition[0] == event.affiliation.profile_type.code), 'GRADO')
-        require_scope_permission(user, scope, 'admin')
+        event_scope = next((code for code, definition in SCOPES.items() if definition[0] == event.affiliation.profile_type.code), 'GRADO')
+        #FMONITORSCOPE03-10705: El rearme tampoco permite mezclar lotes de un administrador no global.
+        if active is not None and event_scope != active:
+            raise PermissionDenied('El lote contiene eventos ajenos al ámbito activo.')
+        require_scope_permission(user, event_scope, 'admin')
     updated = skipped = 0
     for event in events:
         if event.status != 'FAILED':
@@ -79,27 +99,30 @@ class OutboxAccessMixin:
         if not request.user.is_authenticated:
             #FMONITORHTTP01-10404: La autenticación precede a la consulta del monitor.
             return redirect_to_login(request.get_full_path(), '/dash/administracion/ingresar/')
-        scopes = authorized_scopes(request.user)
-        if not scopes:
-            #FMONITORHTTP02-10405: Lectura general de fichas no concede acceso operativo al Outbox.
-            raise PermissionDenied('El monitor requiere permisos de operación académica.')
-        #FMONITOR07-10413: Un intento explícito de consultar otro ámbito se rechaza antes del conteo.
-        if request.GET.get('scope', scopes[0]) not in scopes or request.POST.get('scope', scopes[0]) not in scopes:
-            raise PermissionDenied('No tiene permiso para consultar el Outbox de ese ámbito.')
-        request.academic_scope = scopes[0]
+        get_scope, post_scope = request.GET.get('scope'), request.POST.get('scope')
+        if get_scope and post_scope and get_scope != post_scope:
+            #FMONITORSCOPE04-10706: La URL y el formulario no pueden indicar ámbitos contradictorios.
+            raise PermissionDenied('La solicitud contiene ámbitos académicos contradictorios.')
+        request.outbox_scope = monitor_scope(request.user, post_scope or get_scope)
+        request.academic_scope = request.outbox_scope or authorized_scopes(request.user)[0]
         return super().dispatch(request, *args, **kwargs)
 
 
 class OutboxBadgeView(OutboxAccessMixin, View):
+    def _badge_url(self, request):
+        from django.urls import reverse
+        url = reverse('portal:outbox_badge')
+        return url + '?' + urlencode({'scope': request.outbox_scope}) if request.outbox_scope else url
+
     def get(self, request):
-        count = visible_events(request.user).filter(status__in=['PENDING', 'RETRY_SCHEDULED', 'FAILED']).count()
+        count = visible_events(request.user, scope=request.outbox_scope).filter(status__in=['PENDING', 'RETRY_SCHEDULED', 'FAILED']).count()
         #FMONITORHTTP03-10406: Conteo local actualizado sin bloquear filas ni consultar proveedores.
-        return render(request, 'portal/fragments/outbox_badge.html', {'outbox_count': count})
+        return render(request, 'portal/fragments/outbox_badge.html', {'outbox_count': count, 'outbox_badge_url': self._badge_url(request)})
 
 
 class OutboxMonitorView(OutboxAccessMixin, View):
     def show(self, request, *, feedback='', error=False, params=None):
-        base = visible_events(request.user)
+        base = visible_events(request.user, scope=request.outbox_scope)
         counts = base.aggregate(**{state: Count('pk', filter=Q(status=state)) for state in ('PENDING', 'PROCESSING', 'SUCCEEDED', 'FAILED')})
         params = params if params is not None else request.GET if request.method == 'GET' else request.POST
         query = {key: params[key] for key in ('status', 'action') if params.get(key)}
@@ -108,13 +131,15 @@ class OutboxMonitorView(OutboxAccessMixin, View):
             raise ValidationError('El estado o la operación del monitor no son válidos.')
         events = base.filter(**query).select_related('identity', 'affiliation__profile_type').order_by('-created_at', '-pk')
         page = Paginator(events, 50).get_page(params.get('page'))
+        link_filters = {**query, **({'scope': request.outbox_scope} if request.outbox_scope else {})}
         links = [{'number': number, 'current': number == page.number, 'ellipsis': number == page.paginator.ELLIPSIS,
-                  'url': '?' + urlencode({**query, 'page': number})} for number in page.paginator.get_elided_page_range(page.number)]
+                  'url': '?' + urlencode({**link_filters, 'page': number})} for number in page.paginator.get_elided_page_range(page.number)]
         #FMONITORHTTP04-10408: El listado paginado carga identidad y ámbito en la misma consulta.
         return render(request, 'portal/fragments/outbox_monitor.html' if request.headers.get('HX-Request') == 'true' else 'portal/administracion/outbox.html', {
             'counts': counts, 'events_page': page, 'page_links': links, 'feedback': feedback, 'error': error,
             'status_options': OutboxEvent.Status.choices, 'action_options': OutboxEvent._meta.get_field('action').choices,
-            'monitor_filters': query, 'can_rearm': bool(authorized_scopes(request.user, 'admin'))})
+            'monitor_filters': query, 'monitor_scope': request.outbox_scope or '',
+            'can_rearm': has_scope_permission(request.user, request.outbox_scope, 'admin') if request.outbox_scope else request.user.is_superuser})
 
     def get(self, request):
         try:
@@ -129,7 +154,7 @@ class OutboxMonitorView(OutboxAccessMixin, View):
             #FMONITOR05-10411: Valida filtros antes de cambiar eventos, también en peticiones POST manipuladas.
             if request.POST.get('status', '') not in {'', *OutboxEvent.Status.values} or request.POST.get('action', '') not in {'', 'PROVISION', 'SUSPEND', 'TERMINATE', 'SUPPORT'}:
                 raise ValidationError('El estado o la operación del monitor no son válidos.')
-            updated, skipped = rearm_failed_events([int(value) for value in request.POST.getlist('event_ids')], user=request.user)
+            updated, skipped = rearm_failed_events([int(value) for value in request.POST.getlist('event_ids')], user=request.user, scope=request.outbox_scope)
             return self.show(request, feedback=f'Eventos rearmados: {updated}. Omitidos: {skipped}.')
         except (ValidationError, ValueError) as exc:
             #FMONITORHTTP06-10410: Una selección mal formada no inicia ningún rearme parcial.
