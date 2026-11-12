@@ -543,21 +543,56 @@ class MicrosoftGraphClient(BaseIntegrationClient):
         #FGRAPH19-1019: El reporte puede ser CSV y se retorna sin decodificar.
         return response.content
 
-    def get_user_joined_teams(self, user_id: str) -> list[str]:
-        """Devuelve IDs de equipos de los que el usuario es miembro."""
+    def _catalog_pages(self, path, *, params=None):
+        """Lee todas las páginas y restringe continuaciones al mismo recurso Graph."""
+        original = path
+        rows, visited = [], set()
+        while path:
+            #FCATGRAPH01-9001: Rechaza continuaciones circulares antes de consultar la red.
+            if path in visited:
+                raise IntegrationError('Paginación circular del catálogo Graph.')
+            visited.add(path)
+            body = self._json_object(self._graph_request('GET', path, params=params), 'catálogo Graph')
+            params = None
+            #FCATGRAPH02-9002: Una respuesta incompleta no equivale a un catálogo vacío.
+            if not isinstance(body.get('value'), list) or any(not isinstance(row, dict) or not row.get('id') for row in body['value']):
+                raise IntegrationError('Graph devolvió una página de catálogo inválida.')
+            rows.extend(body['value'])
+            link = body.get('@odata.nextLink')
+            #FCATGRAPH03-9003: No se envían credenciales a otros destinos o recursos.
+            if link and (not isinstance(link, str) or not link.startswith(f'{self.graph_base_url}/{original}?')):
+                raise IntegrationError('Destino de paginación del catálogo Graph inválido.')
+            path = link[len(self.graph_base_url) + 1:] if link else None
+        return rows
 
+    def list_teams(self):
+        """Lista los grupos que respaldan equipos, incluyendo alias y descripción."""
+        return self._catalog_pages('groups', params={
+            '$filter': "resourceProvisioningOptions/Any(x:x eq 'Team')",
+            '$select': 'id,displayName,mailNickname,description',
+        })
+
+    def get_team(self, team_id):
+        """Obtiene el grupo asociado al equipo para un refresco individual."""
+        return self._json_object(self._graph_request('GET', f"groups/{quote(team_id, safe='')}",
+            params={'$select': 'id,displayName,mailNickname,description'}), 'equipo Graph')
+
+    def get_team_channels(self, team_id):
+        """Consulta canales estándar y privados; no obtiene registros de acceso."""
+        return self._catalog_pages(f"teams/{quote(team_id, safe='')}/channels",
+                                   params={'$select': 'id,displayName,membershipType'})
+
+    def get_user_joined_teams(self, user_id):
+        """Devuelve todas las pertenencias directas confirmadas, con paginación."""
+        #FCATGRAPH04-9004: Un identificador vacío no representa una identidad remota.
         if not user_id:
-            #FGRAPH20-1020: Un usuario identificado es requerido por la ruta.
-            raise ValueError("user_id no puede estar vacío.")
-        response = self._graph_request(
-            "GET", f"users/{quote(user_id, safe='')}/joinedTeams"
-        )
-        body = self._json_object(response, "equipos Graph")
-        values = body.get("value", [])
-        if not isinstance(values, list):
-            #FGRAPH21-1021: Forma incorrecta del resultado no se normaliza a lista vacía.
-            raise IntegrationError("Microsoft Graph devolvió joinedTeams en formato inválido.")
-        return [str(team["id"]) for team in values if isinstance(team, dict) and team.get("id")]
+            raise ValueError('Debe indicar el identificador del usuario.')
+        return [str(row['id']) for row in self._catalog_pages(f"users/{quote(user_id, safe='')}/joinedTeams")]
+
+    def get_user_state(self, upn):
+        """Lee habilitación y cambio de clave, sin consultar actividad ni accesos."""
+        return self._json_object(self._graph_request('GET', f"users/{quote(upn, safe='')}",
+            params={'$select': 'id,userPrincipalName,accountEnabled,passwordProfile'}), 'estado de usuario Graph')
 
     def _validate_license_inputs(self, user_id_or_upn, sku_id):
         """Valida identificadores mínimos antes de construir una mutación."""

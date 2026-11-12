@@ -66,7 +66,7 @@ class PortalDashboardTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Grace Hopper")
+        self.assertContains(response, "Hopper, Grace")
         self.assertContains(response, "27123456")
         self.assertContains(response, "grace.hopper@eco.unrc.edu.ar")
         self.assertNotContains(response, "<html")

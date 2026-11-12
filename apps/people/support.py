@@ -21,6 +21,7 @@ from .permissions import (
 
 
 SUPPORT_ACTIONS = {
+    'notification': 'Notificación institucional',
     'credentials': 'Reenvío de credenciales',
     'sessions': 'Revocación de sesiones',
     'license': 'Conmutación de licencia A1',
@@ -103,7 +104,18 @@ def perform_support(identity_id, action, *, user, dry_run=None, **options):
             #FPEOPLESUPPORT004-8004: Origina ValidationError; el llamador conserva la causa y decide su tratamiento.
             raise ValidationError('La identidad no tiene UPN institucional.')
         upn = identity.institutional_upn
-        if action.startswith('moodle_'):
+        if action == 'notification':
+            mailer = build_mailer(dry_run=dry_run) if dry_run is not None else build_mailer()
+            #FPEOPLESUPPORT013-8013: El cliente debe respetar la simulación del trabajador.
+            if dry_run is not None and bool(mailer.dry_run) != dry_run:
+                raise IntegrationError('El cliente no respeta el modo de simulación solicitado.')
+            validate_email(options.get('recipient', ''))
+            delivery = mailer.send_email(options['recipient'], options['subject'], options['body'])
+            #FPEOPLESUPPORT014-8014: Una entrega fallida sigue el circuito de reintentos del Outbox.
+            if not delivery.success:
+                raise IntegrationError('El proveedor no confirmó la entrega del correo.')
+            result = ExternalActionResult(action, simulated=delivery.simulated)
+        elif action.startswith('moodle_'):
             result = _moodle_action(identity, action, dry_run=dry_run, **options)
         else:
             graph = build_graph(dry_run=dry_run) if dry_run is not None else build_graph()

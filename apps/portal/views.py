@@ -19,16 +19,31 @@ def _is_htmx(request):
 
 
 class AdministracionDashboardView(StaffPortalMixin, View):
-    """Lista alumnos y sus vinculaciones mediante filtros y paginación en el servidor."""
+    """Genera la tabla con filtros SQL y paginación configurable.
+
+    La optimización anti-N+1 precarga relaciones antes de renderizar el fragmento
+    HTMX; la exportación reutiliza la consulta para conservar los mismos filtros.
+    """
 
     template_name = "portal/administracion.html"
     fragment_name = "portal/fragments/administracion_results.html"
 
+    builder_mode = False
+
     def get(self, request):
-        context = student_grid_context(request.GET)
+        context = student_grid_context(request.GET, user=request.user, builder_mode=self.builder_mode)
+        context['refresh_filters'] = _is_htmx(request) and 'snippet' in request.GET
         template = self.fragment_name if _is_htmx(request) else self.template_name
         #FPORTALVIEWS001-8001: Respuesta HTTP explícita o predeterminada: mantiene el contrato de página, fragmento o redirección.
         return render(request, template, context)
+
+
+class QueryBuilderView(AdministracionDashboardView):
+    """Constructor con vista previa que comparte el parser seguro de la grilla."""
+
+    builder_mode = True
+    template_name = 'portal/administracion/query_builder.html'
+    fragment_name = 'portal/fragments/query_builder.html'
 
 
 class AdministracionSearchView(AdministracionDashboardView):

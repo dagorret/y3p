@@ -103,6 +103,12 @@ class TTLForm(forms.Form):
 
 
 class MoodleExpressForm(forms.Form):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        from apps.integrations.models import MoodleCourseMirror
+        self.fields['shortname'].widget = forms.Select(choices=[('', 'Seleccione un curso')] +
+            [(course.shortname, f'{course.shortname} · {course.fullname}') for course in MoodleCourseMirror.objects.all()])
+
     shortname = forms.CharField(label='Shortname del curso', max_length=100)
     role_id = forms.TypedChoiceField(label='Rol', coerce=int, choices=((5, 'Estudiante'), (3, 'Docente')))
     group_name = forms.CharField(label='Comisión (opcional)', max_length=100, required=False)
@@ -158,6 +164,12 @@ class TeamCreationForm(forms.Form):
 
 
 class TeamMappingForm(forms.Form):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        from apps.integrations.models import MoodleCourseMirror
+        self.fields['moodle_shortname'].widget = forms.Select(choices=[('', 'Sin curso asociado')] +
+            [(course.shortname, f'{course.shortname} · {course.fullname}') for course in MoodleCourseMirror.objects.all()])
+
     moodle_shortname = forms.CharField(label='Curso Moodle (shortname)', max_length=100, required=False)
     career_code = forms.CharField(label='Carrera SIAL', max_length=20, required=False)
     commission = forms.CharField(label='Comisión (vacío: todos)', max_length=100, required=False)
@@ -176,5 +188,11 @@ class TeamPopulationForm(forms.Form):
 
 
 class TeamPurgeForm(forms.Form):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        from apps.integrations.models import TeamsWorkspaceMirror
+        self.fields['team_id'].widget = forms.Select(choices=[('', 'Seleccione un equipo')] +
+            [(team.team_id, team.display_name) for team in TeamsWorkspaceMirror.objects.all()])
+
     team_id = forms.UUIDField(label='Identificador del equipo (UUID)')
     confirm = forms.BooleanField(label='Confirmo la limpieza de miembros conservando propietarios', required=True)

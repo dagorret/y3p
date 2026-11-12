@@ -1,4 +1,13 @@
-"""Diagnóstico local en SQL antes de paginar; consultas constantes por página."""
+"""Generación tabular con diagnóstico SQL y optimización anti-N+1.
+
+La grilla y Excel comparten filtros; select_related y prefetch_related cargan
+relaciones en consultas constantes por página o bloque de exportación. El parser
+traduce claves autorizadas a Q parametrizados y combina condiciones académicas
+en EXISTS, sin SQL textual ni evaluación de código. La lista de snippets ocupa
+la consulta antes dedicada a precargar eventos que la tabla ya no muestra. El
+selector Moodle sustituye la precarga de cuentas que esta tabla tampoco utiliza;
+el total sigue siendo siete consultas independientes del número de alumnos.
+"""
 
 from urllib.parse import urlencode
 
@@ -7,11 +16,17 @@ from django.conf import settings
 from django.core.paginator import Paginator
 from django.db.models import BooleanField, Case, CharField, Exists, F, OuterRef, Prefetch, Q, Value, When
 from django.utils import timezone
+from django.urls import reverse
+from apps.integrations.models import MoodleCourseMirror
 
 from apps.people.models import Affiliation, DigitalAccount, Identity, OutboxEvent, SagaStatusDefinition
 
+from .query_parser import QuerySyntaxError, parse_query
+from .snippet_services import resolve_query_params, visible_snippets
 
-HEALTH_LABELS = {'green': 'Normal', 'yellow': 'Advertencia', 'orange': 'Caducado / sin licencia', 'red': 'Error'}
+
+HEALTH_LABELS = {'green': 'Verde', 'yellow': 'Amarillo', 'orange': 'Naranja', 'red': 'Rojo'}
+PAGE_SIZES = (25, 50, 100, 200)
 
 
 def student_queryset(params, *, now=None):
@@ -28,8 +43,9 @@ def student_queryset(params, *, now=None):
     proveedor para que abrir la grilla no ejecute cientos de consultas remotas.
     """
     now = now or timezone.now()
+    criteria = parse_query(params.get('formula', ''), now=now)
     academic = Affiliation.objects.filter(identity_id=OuterRef('pk'), profile_type__code='ALUMNO')
-    selected = academic
+    selected = academic.filter(criteria.affiliation)
     if params.get('career'):
         selected = selected.filter(reference=params['career'])
     if params.get('status'):
@@ -55,7 +71,8 @@ def student_queryset(params, *, now=None):
         Enrollment = apps.get_model('platform_mocks', 'MockMoodleEnrollment')
         azure = Azure.objects.filter(upn=OuterRef('institutional_upn'))
         qs = qs.annotate(_mock=Exists(azure))
-        sku = settings.LUCY_M365_SKU_ID
+        from apps.platform_mocks import DEV_A1_SKU
+        sku = settings.LUCY_M365_SKU_ID or DEV_A1_SKU
         observations = {
             '_account': Exists(azure.filter(is_active=True)),
             '_license_known': Value(bool(sku), output_field=BooleanField()),
@@ -78,24 +95,66 @@ def student_queryset(params, *, now=None):
                        | Q(last_name__icontains=query) | Q(institutional_upn__icontains=query))
     if params.get('health') in HEALTH_LABELS:
         qs = qs.filter(health=params['health'])
+    qs = qs.filter(criteria.identity)
     #FGRID01-8001: Las relaciones simples se unen; las colecciones se precargan por página.
-    # La precarga evita consultas N+1 y el límite de tres eventos se aplica por identidad.
+    # La precarga evita consultas N+1; los errores Outbox ya están resumidos por EXISTS.
     return qs.select_related('personal_profile').prefetch_related(
-        'digital_accounts',
         Prefetch('affiliations', queryset=Affiliation.objects.filter(profile_type__code='ALUMNO').select_related('profile_type', 'current_status'), to_attr='grade_affiliations'),
-        Prefetch('outbox_events', queryset=OutboxEvent.objects.only('id', 'identity_id', 'action', 'status', 'created_at', 'last_error').order_by('-id')[:3], to_attr='recent_events'),
     ).order_by('last_name', 'first_name', 'pk')
 
 
-def student_grid_context(params, *, feedback='', error=False):
-    """Materializa hasta 50 filas con siete consultas y relaciones precargadas.
+def student_grid_context(params, *, user=None, feedback='', error=False, builder_mode=False):
+    """Materializa hasta 200 filas con siete consultas y relaciones precargadas.
 
     La paginación ocurre después del diagnóstico SQL; filtrar por salud abarca
     todo el padrón. La explicación de cada fila usa anotaciones ya obtenidas y
     no dispara consultas adicionales. Los enlaces conservan los filtros vigentes.
     """
-    page = Paginator(student_queryset(params), 50).get_page(params.get('page'))
+    snippets = visible_snippets(user)
+    selected_snippet = None
+    query_error = ''
+    try:
+        params, selected_snippet = resolve_query_params(params, snippets)
+        queryset = student_queryset(params)
+    except QuerySyntaxError as exc:
+        #FGRID03-8303: La fórmula inválida se muestra sin ampliar silenciosamente el resultado.
+        query_error = '; '.join(exc.messages)
+        queryset = Identity.objects.none()
+    #FGRID02-8002: Solo se aceptan tamaños acotados; cualquier otro usa 50.
+    page_size = str(params.get('page_size', '50'))
+    page_size = int(page_size) if page_size in {str(size) for size in PAGE_SIZES} else 50
+    page = Paginator(queryset, page_size).get_page(params.get('page'))
     identities = list(page.object_list)
+    describe_health(identities)
+    query = {key: params[key] for key in ('q', 'career', 'status', 'health', 'formula') if params.get(key)}
+    if query_error and params.get('snippet'):
+        query['snippet'] = params['snippet']
+    query['page_size'] = page_size
+    grid_url = reverse('portal:query_builder' if builder_mode else 'portal:administracion')
+    def link(number):
+        return grid_url + '?' + urlencode({**query, 'page': number})
+    return {
+        'builder_mode': builder_mode, 'grid_url': grid_url,
+        'moodle_courses': list(MoodleCourseMirror.objects.all()),
+        'page_links': [{'number': number, 'ellipsis': number == page.paginator.ELLIPSIS,
+                        'current': number == page.number,
+                        'url': '' if number == page.paginator.ELLIPSIS else link(number)}
+                       for number in page.paginator.get_elided_page_range(page.number, on_each_side=2, on_ends=1)],
+        'snippets': snippets, 'selected_snippet': selected_snippet, 'query_error': query_error,
+        'formula': params.get('formula', ''),
+        'identities': identities, 'page_obj': page, 'query': params.get('q', ''),
+        'page_size': page_size, 'page_sizes': PAGE_SIZES,
+        'export_query': urlencode(query), 'filters': query, 'health_options': HEALTH_LABELS.items(),
+        'careers': list(Affiliation.objects.filter(profile_type__code='ALUMNO').exclude(reference='').order_by('reference').values_list('reference', flat=True).distinct()),
+        'saga_states': list(SagaStatusDefinition.objects.filter(profile_type__code='ALUMNO').order_by('code').values_list('code', 'name')),
+        'previous_url': link(page.previous_page_number()) if page.has_previous() else '',
+        'next_url': link(page.next_page_number()) if page.has_next() else '',
+        'feedback': feedback, 'error': error,
+    }
+
+
+def describe_health(identities):
+    """Explica el diagnóstico usando exclusivamente anotaciones precargadas."""
     for identity in identities:
         reasons = []
         if identity._failed:
@@ -120,15 +179,3 @@ def student_grid_context(params, *, feedback='', error=False):
             reasons.append('Sin vinculación académica activa')
         identity.health_label = HEALTH_LABELS[identity.health]
         identity.health_reason = '; '.join(reasons) or 'Cuenta activa, licencia, matrícula y actividad confirmadas; vigencia válida.'
-    query = {key: params[key] for key in ('q', 'career', 'status', 'health') if params.get(key)}
-    def link(number):
-        return '/dash/administracion/?' + urlencode({**query, 'page': number})
-    return {
-        'identities': identities, 'page_obj': page, 'query': params.get('q', ''),
-        'filters': query, 'health_options': HEALTH_LABELS.items(),
-        'careers': list(Affiliation.objects.filter(profile_type__code='ALUMNO').exclude(reference='').order_by('reference').values_list('reference', flat=True).distinct()),
-        'saga_states': list(SagaStatusDefinition.objects.filter(profile_type__code='ALUMNO').order_by('code').values_list('code', 'name')),
-        'previous_url': link(page.previous_page_number()) if page.has_previous() else '',
-        'next_url': link(page.next_page_number()) if page.has_next() else '',
-        'feedback': feedback, 'error': error,
-    }
