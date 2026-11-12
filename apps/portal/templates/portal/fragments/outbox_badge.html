@@ -1,1 +1,1 @@
-<span id="outbox-badge" role="status" aria-label="Eventos pendientes o fallidos" class="ml-2 rounded-full bg-amber-200 px-2 text-sm text-slate-900" hx-get="{% url 'portal:outbox_badge' %}" hx-trigger="every 10s" hx-swap="outerHTML">{{ outbox_count }}</span>
+<span id="outbox-badge" role="status" aria-label="Eventos pendientes o fallidos" class="ml-2 rounded-full bg-amber-200 px-2 text-sm text-slate-900" hx-get="{{ outbox_badge_url }}" hx-trigger="every 10s" hx-swap="outerHTML">{{ outbox_count }}</span>

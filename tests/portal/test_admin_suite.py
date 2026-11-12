@@ -273,7 +273,7 @@ class GlobalAdministrationTests(TestCase):
         for name in ('administracion', 'person_create', 'functional_create', 'teams', 'team_create'):
             response = self.client.get(reverse('portal:' + name))
             with self.subTest(route=name):
-                self.assertContains(response, 'Alta de Persona')
+                self.assertContains(response, 'Alta / Inscripción')
                 self.assertContains(response, 'Gestión de Teams')
                 self.assertContains(response, 'Cuentas Funcionales')
 
