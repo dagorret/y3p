@@ -1,2 +1,12 @@
 {% extends "portal/administracion/base_administracion.html" %}
-{% block admin_content %}{% include "portal/fragments/outbox_monitor.html" %}{% endblock %}
+
+{% comment %}
+#FPORTALHTML01-12107: Página contenedora del monitor; el servidor limita los eventos al ámbito autorizado.
+La composición hereda sus anclajes de la página contenedora.
+La visibilidad acompaña permisos del servidor; ocultar controles no reemplaza su validación.
+{% endcomment %}
+
+{% block admin_content %}
+
+  {% include "portal/fragments/outbox_monitor.html" %}
+{% endblock %}

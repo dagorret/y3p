@@ -1,0 +1,37 @@
+{% comment %}
+#FPORTALHTML01-12143: Tabla accesible con desplazamiento horizontal; consume relaciones precargadas sin introducir N+1.
+Anclaje: student-grid, student-select-all.
+La visibilidad acompaña permisos del servidor; ocultar controles no reemplaza su validación.
+{% endcomment %}
+
+<div class="overflow-x-auto rounded-xl border bg-white">
+  <table class="w-full text-left text-sm" id="student-grid">
+    <thead class="bg-slate-100">
+      <tr>
+        {% if can_operate_daily and not builder_mode %}
+          <th class="p-3">
+            <input type="checkbox" id="student-select-all" aria-label="Seleccionar todos los alumnos de esta página">
+          </th>
+        {% endif %}
+        <th class="p-3">DNI</th>
+        <th class="p-3">Apellido y Nombre</th>
+        <th class="p-3">UPN Institucional</th>
+        <th class="p-3">Carrera</th>
+        <th class="p-3">Estado Saga</th>
+        <th class="p-3">Vencimiento TTL</th>
+        <th class="p-3">Salud / Semáforo</th>
+        <th class="p-3">Acciones</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for identity in identities %}
+
+        {% include "portal/fragments/student_row.html" %}
+      {% empty %}
+        <tr>
+          <td colspan="9" class="p-8 text-center text-slate-600">No hay alumnos que coincidan con los filtros.</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

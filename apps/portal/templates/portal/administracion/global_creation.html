@@ -1,3 +1,14 @@
 {% extends "portal/administracion/base_administracion.html" %}
-{% block title %}{{ title }} · Y3P{% endblock %}
-{% block admin_content %}{% include "portal/administracion/global_form.html" %}{% endblock %}
+
+{% comment %}
+#FPORTALHTML01-12104: Alta de personas o cuentas funcionales mediante el formulario autorizado por el servidor.
+La composición hereda sus anclajes de la página contenedora.
+La visibilidad acompaña permisos del servidor; ocultar controles no reemplaza su validación.
+{% endcomment %}
+
+{% block title %}
+  {{ title }} · Y3P
+{% endblock %}
+{% block admin_content %}
+  {% include "portal/administracion/global_form.html" %}
+{% endblock %}

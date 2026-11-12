@@ -1,3 +1,15 @@
 {% extends "portal/base.html" %}
-{% block title %}Extensión · Portal Y3P{% endblock %}
-{% block content %}{% include "portal/fragments/extension_content.html" %}{% endblock %}
+
+{% comment %}
+#FPORTALHTML01-12117: Página de inscripción de Extensión, accesible con permiso de operación del ámbito.
+La composición hereda sus anclajes de la página contenedora.
+La visibilidad acompaña permisos del servidor; ocultar controles no reemplaza su validación.
+{% endcomment %}
+
+{% block title %}
+  Extensión · Portal Y3P
+{% endblock %}
+{% block content %}
+
+  {% include "portal/fragments/extension_content.html" %}
+{% endblock %}

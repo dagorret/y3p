@@ -1,0 +1,54 @@
+{% comment %}
+#FPORTALHTML01-12124: Vinculaciones, historial inmutable y formularios críticos de transición y vencimiento.
+Destinos HTMX: #identity-card.
+La visibilidad acompaña permisos del servidor; ocultar controles no reemplaza su validación.
+{% endcomment %}
+
+<section class="rounded-xl bg-white p-6 shadow-sm">
+  <h2 class="text-xl font-bold">Sagas, vinculaciones e historial</h2>
+  {% for affiliation in affiliations %}
+    <article class="my-5 rounded-lg border p-4">
+      <h3 class="font-bold">{{ affiliation.profile_type.name }} · {{ affiliation.reference }}</h3>
+      <p>
+        {{ affiliation.current_status.name }} · {{ affiliation.is_active|yesno:"Activa,Inactiva" }} · Vence: {{ affiliation.expires_at|default:"Sin vencimiento" }}
+      </p>
+      {% if can_administer_critical and affiliation.is_active %}
+        <details class="my-3">
+          <summary class="cursor-pointer font-semibold">Forzar transición válida / ajustar TTL</summary>
+          <p class="text-sm">La intervención manual respeta las reglas del grafo y exige un motivo.</p>
+          <form method="post"
+                hx-post="{% url 'portal:affiliation_transition' identity.pk affiliation.pk %}"
+                hx-target="#identity-card"
+                hx-swap="outerHTML"
+                class="my-3">
+            {% csrf_token %}
+            {{ affiliation.transition_form.as_p }}
+            <button class="rounded bg-blue-700 px-4 py-2 text-white">Ejecutar transición</button>
+          </form>
+          <form method="post"
+                hx-post="{% url 'portal:affiliation_ttl' identity.pk affiliation.pk %}"
+                hx-target="#identity-card"
+                hx-swap="outerHTML">
+            {% csrf_token %}
+            {{ affiliation.ttl_form.as_p }}
+            <button class="rounded border px-4 py-2">Actualizar vencimiento</button>
+          </form>
+        </details>
+      {% endif %}
+      <details>
+        <summary class="cursor-pointer">Historial inmutable (últimos 20 registros)</summary>
+        <ul>
+          {% for event in affiliation.events %}
+            <li class="my-2 text-sm">
+              {{ event.occurred_at }} · {{ event.from_status.code|default:"ALTA" }} → {{ event.to_status.code }} · {{ event.changed_by }} · {{ event.reason }}
+            </li>
+          {% empty %}
+            <li>Sin antecedentes.</li>
+          {% endfor %}
+        </ul>
+      </details>
+    </article>
+  {% empty %}
+    <p>Sin vinculaciones.</p>
+  {% endfor %}
+</section>

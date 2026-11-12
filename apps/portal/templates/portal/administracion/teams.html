@@ -1,5 +1,31 @@
 {% extends "portal/administracion/base_administracion.html" %}
-{% block title %}Gestión de Teams · Y3P{% endblock %}
+
+{% comment %}
+#FPORTALHTML01-12113: Contenedor de gestión institucional de equipos y correspondencias pedagógicas.
+Destinos HTMX: #catalog-channels.
+La visibilidad acompaña permisos del servidor; ocultar controles no reemplaza su validación.
+{% endcomment %}
+
+{% block title %}
+  Gestión de Teams · Y3P
+{% endblock %}
 {% block admin_content %}
-<section class="mb-4 flex flex-wrap gap-3 rounded border bg-white p-3"><label>Equipo del catálogo<select name="team_id" hx-get="{% url 'portal:catalog_channels' %}" hx-trigger="change" hx-target="#catalog-channels" hx-swap="outerHTML"><option value="">Seleccione un equipo</option>{% for team in catalog_teams %}<option value="{{ team.team_id }}">{{ team.display_name }}</option>{% endfor %}</select></label>{% include "portal/fragments/catalog_channels.html" %}</section>
-{% include "portal/administracion/teams_panel.html" %}{% endblock %}
+  <section class="mb-4 flex flex-wrap gap-3 rounded border bg-white p-3">
+    <label>
+      Equipo del catálogo
+      <select name="team_id"
+              hx-get="{% url 'portal:catalog_channels' %}"
+              hx-trigger="change"
+              hx-target="#catalog-channels"
+              hx-swap="outerHTML">
+        <option value="">Seleccione un equipo</option>
+        {% for team in catalog_teams %}
+          <option value="{{ team.team_id }}">{{ team.display_name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+
+    {% include "portal/fragments/catalog_channels.html" %}
+  </section>
+  {% include "portal/administracion/teams_panel.html" %}
+{% endblock %}

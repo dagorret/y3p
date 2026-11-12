@@ -1,0 +1,86 @@
+{% comment %}
+#FPORTALHTML01-12139: Herramientas por lote: confirmación académica, comunicaciones y operaciones habilitadas por rol.
+Anclaje: student-bulk-toolbar, student-selection-count.
+La visibilidad acompaña permisos del servidor; ocultar controles no reemplaza su validación.
+{% endcomment %}
+
+<div id="student-bulk-toolbar" hidden class="sticky top-0 z-10 rounded-xl bg-slate-900 p-4 text-white">
+  <p class="mb-3">
+    <strong id="student-selection-count">0</strong>
+    seleccionados. Las acciones se registran en el Outbox; no se ejecutan en el navegador.
+  </p>
+  <div class="flex flex-wrap items-start gap-3">
+    {% if is_scoped_academic %}
+      <button type="submit"
+              name="action"
+              value="confirm"
+              class="rounded-lg bg-blue-700 px-3 py-2"
+              hx-confirm="¿Confirmar las preinscripciones seleccionadas de este ámbito?">
+        Confirmar Preinscriptos
+      </button>
+    {% else %}
+      <button type="submit"
+              name="action"
+              value="credentials"
+              class="rounded-lg border px-3 py-2"
+              hx-confirm="¿Registrar reenvío de claves para los alumnos seleccionados?">
+        Reenviar Claves Seleccionadas
+      </button>
+    {% endif %}
+    <details class="rounded-lg border p-2">
+      <summary class="cursor-pointer">Enviar Notificación por Email</summary>
+      <div class="mt-3 space-y-3">
+        <label>
+          Asunto del correo
+          <input name="subject" maxlength="200" class="text-slate-900">
+        </label>
+        <label>
+          Cuerpo del mensaje<textarea name="body" rows="6" maxlength="10000" class="w-full text-slate-900"></textarea>
+        </label>
+        <p class="text-sm">Variables disponibles: {full_name}, {upn}, {document_number}.</p>
+        <button type="submit" name="action" value="notification" class="rounded bg-blue-600 px-3 py-2">
+          Confirmar envío
+        </button>
+      </div>
+    </details>
+    {% if not is_scoped_academic %}
+      <details class="rounded-lg border p-2">
+        <summary class="cursor-pointer">Matricular en Curso Moodle</summary>
+        <div class="mt-3 space-y-2 text-slate-900">
+          <label class="text-white">
+            Shortname
+            <select name="shortname">
+              <option value="">Seleccione un curso</option>
+              {% for course in moodle_courses %}
+                <option value="{{ course.shortname }}">{{ course.shortname }} · {{ course.fullname }}</option>
+              {% endfor %}
+            </select>
+          </label>
+          <label class="text-white">
+            Rol
+            <select name="role_id">
+              <option value="5">Estudiante</option>
+              <option value="3">Docente</option>
+            </select>
+          </label>
+          <label class="text-white">
+            Comisión opcional
+            <input name="group_name" maxlength="100">
+          </label>
+          <button type="submit" name="action" value="moodle_enrol" class="rounded bg-blue-600 px-3 py-2 text-white">
+            Encolar matrícula en lote
+          </button>
+        </div>
+      </details>
+      {% if can_administer_critical %}
+        <button type="submit"
+                name="action"
+                value="license"
+                class="rounded-lg border border-amber-400 px-3 py-2"
+                hx-confirm="¿Registrar conmutación A1 para los alumnos seleccionados?">
+          Conmutar Licencia A1 en Lote
+        </button>
+      {% endif %}
+    {% endif %}
+  </div>
+</div>

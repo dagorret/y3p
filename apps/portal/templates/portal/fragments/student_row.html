@@ -1,0 +1,56 @@
+{% comment %}
+#FPORTALHTML01-12142: Fila del alumno: columnas independientes, vencimientos, diagnóstico local y acceso a su ficha.
+Anclaje: {{ identity.pk }}.
+La visibilidad acompaña permisos del servidor; ocultar controles no reemplaza su validación.
+{% endcomment %}
+
+<tr class="border-t align-top" data-identity-id="{{ identity.pk }}" data-health="{{ identity.health }}">
+  {% if can_operate_daily and not builder_mode %}
+    <td class="p-3">
+      <input class="student-select"
+             type="checkbox"
+             name="identity_ids"
+             value="{{ identity.pk }}"
+             aria-label="Seleccionar {{ identity.identifier }}">
+    </td>
+  {% endif %}
+  <td class="p-3">{{ identity.identifier }}</td>
+  <td class="p-3">
+    <strong>{{ identity.last_name }}, {{ identity.first_name }}</strong>
+  </td>
+  <td class="p-3">{{ identity.institutional_upn|default:"UPN pendiente" }}</td>
+  <td class="p-3">
+    {% for affiliation in identity.grade_affiliations %}
+      <p>{{ affiliation.reference|default:"Sin carrera" }}</p>
+    {% endfor %}
+  </td>
+  <td class="p-3">
+    {% for affiliation in identity.grade_affiliations %}
+      <p>{{ affiliation.current_status.code }}</p>
+    {% endfor %}
+  </td>
+  <td class="p-3">
+    {% for affiliation in identity.grade_affiliations %}
+      <p>{{ affiliation.expires_at|date:"d/m/Y H:i:s"|default:"Indefinida" }}</p>
+    {% endfor %}
+  </td>
+  <td class="p-3">
+    <span title="{{ identity.health_reason }}"
+          class="inline-block rounded-full px-3 py-1 font-semibold {% if identity.health == 'green' %}bg-emerald-100 text-emerald-900{% elif identity.health == 'red' %}bg-red-100 text-red-900{% elif identity.health == 'orange' %}bg-orange-100 text-orange-900{% else %}bg-yellow-100 text-yellow-900{% endif %}">
+      {% if identity.health == "green" %}
+        🟢
+      {% elif identity.health == "red" %}
+        🔴
+      {% elif identity.health == "orange" %}
+        🟠
+      {% else %}
+        🟡
+      {% endif %}
+      {{ identity.health_label }}
+    </span>
+    <p class="sr-only">{{ identity.health_reason }}</p>
+  </td>
+  <td class="p-3">
+    <a class="text-blue-700 underline" href="{{ identity.detail_url }}">Abrir Ficha 360°</a>
+  </td>
+</tr>

@@ -157,7 +157,8 @@ USE_TZ = True
 # -----------------------------------------------------------------------------
 # 9. RECURSOS ESTÁTICOS
 # -----------------------------------------------------------------------------
-STATIC_URL = "static/"
+#FPORTALSTATIC01-12001: La ruta absoluta conserva los recursos en todas las rutas anidadas.
+STATIC_URL = "/static/"
 STATICFILES_DIRS = [BASE_DIR / "static"] if (BASE_DIR / "static").exists() else []
 
 

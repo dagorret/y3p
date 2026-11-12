@@ -1,8 +1,20 @@
-<div class="rounded-lg bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800" role="status">{{ success_message }}</div>
+{% comment %}
+#FPORTALHTML01-12135: Confirmación de registro de Posgrado; distingue preinscripción de aprovisionamiento.
+La composición hereda sus anclajes de la página contenedora.
+La visibilidad acompaña permisos del servidor; ocultar controles no reemplaza su validación.
+{% endcomment %}
+
+<div class="rounded-lg bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800" role="status">
+  {{ success_message }}
+</div>
 <tr hx-swap-oob="beforeend:#postgrado-rows">
   <td class="px-3 py-3 font-mono">{{ identity.identifier }}</td>
   <td class="px-3 py-3 font-medium">{{ identity.first_name }} {{ identity.last_name }}</td>
   <td class="px-3 py-3">{{ identity.personal_profile.personal_email|default:"—" }}</td>
   <td class="px-3 py-3">{{ affiliation.reference }}</td>
-  <td class="px-3 py-3"><span class="rounded-full px-2 py-1 text-xs font-semibold {% if affiliation.current_status.code == 'PRE' %}bg-amber-100 text-amber-800{% else %}bg-emerald-100 text-emerald-800{% endif %}">{{ affiliation.current_status.name }}</span></td>
+  <td class="px-3 py-3">
+    <span class="rounded-full px-2 py-1 text-xs font-semibold {% if affiliation.current_status.code == 'PRE' %}bg-amber-100 text-amber-800{% else %}bg-emerald-100 text-emerald-800{% endif %}">
+      {{ affiliation.current_status.name }}
+    </span>
+  </td>
 </tr>

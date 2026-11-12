@@ -1,3 +1,15 @@
 {% extends "portal/base.html" %}
-{% block title %}Posgrado · Portal Y3P{% endblock %}
-{% block content %}{% include "portal/fragments/postgrado_content.html" %}{% endblock %}
+
+{% comment %}
+#FPORTALHTML01-12145: Página de inscripción de Posgrado, accesible con permiso de operación del ámbito.
+La composición hereda sus anclajes de la página contenedora.
+La visibilidad acompaña permisos del servidor; ocultar controles no reemplaza su validación.
+{% endcomment %}
+
+{% block title %}
+  Posgrado · Portal Y3P
+{% endblock %}
+{% block content %}
+
+  {% include "portal/fragments/postgrado_content.html" %}
+{% endblock %}

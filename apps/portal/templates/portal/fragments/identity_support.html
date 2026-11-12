@@ -1,0 +1,72 @@
+{% comment %}
+#FPORTALHTML01-12127: Cuentas y soporte; acciones diarias separadas de licencias y suspensión críticas.
+Destinos HTMX: #identity-card.
+La visibilidad acompaña permisos del servidor; ocultar controles no reemplaza su validación.
+{% endcomment %}
+
+<section class="rounded-xl bg-white p-6 shadow-sm">
+  <h2 class="text-xl font-bold">Identidad digital y soporte</h2>
+  <p class="my-2 text-sm text-slate-600">
+    Revocar sesiones no elimina los métodos MFA. Una operación simulada se informa como SIMULACIÓN.
+  </p>
+  <ul class="my-3">
+    {% for account in digital_accounts %}
+      <li>
+        {{ account.get_platform_display }} · {{ account.account_identifier }} ·
+        <span class="rounded bg-slate-100 px-2">{{ account.is_active|yesno:"Activa,Inactiva" }}</span>
+        {% if account.platform == "TEAMS" %}
+          · Licencia:
+          {% if account.observations.license_assigned == True %}
+            Asignada
+          {% elif account.observations.license_assigned == False %}
+            Sin licencia
+          {% else %}
+            Sin observación
+          {% endif %}
+        {% elif account.platform == "MOODLE" %}
+          · Cursos: {{ account.observations.courses|join:", "|default:"Sin matrículas observadas" }}
+        {% endif %}
+      </li>
+    {% empty %}
+      <li>No hay cuentas digitales registradas.</li>
+    {% endfor %}
+  </ul>
+  {% if can_operate_daily %}
+    <div class="flex flex-wrap gap-3">
+      <form method="post"
+            hx-post="{% url 'portal:identity_credentials' identity.pk %}"
+            hx-target="#identity-card"
+            hx-swap="outerHTML"
+            hx-confirm="Se regenerará la contraseña y se enviará al correo personal. ¿Continuar?">
+        {% csrf_token %}
+        <button class="rounded bg-blue-700 px-4 py-2 text-white">Reenviar Clave Temporal</button>
+      </form>
+      <form method="post"
+            hx-post="{% url 'portal:identity_sessions' identity.pk %}"
+            hx-target="#identity-card"
+            hx-swap="outerHTML"
+            hx-confirm="¿Revocar las sesiones de esta identidad?">
+        {% csrf_token %}
+        <button class="rounded border px-4 py-2">Revocar Sesiones / MFA</button>
+      </form>
+      {% if can_administer_critical %}
+        <form method="post"
+              hx-post="{% url 'portal:identity_license' identity.pk %}"
+              hx-target="#identity-card"
+              hx-swap="outerHTML"
+              hx-confirm="¿Conmutar el SKU A1 según el estado actual en Graph?">
+          {% csrf_token %}
+          <button class="rounded border px-4 py-2">Conmutar Licencia A1</button>
+        </form>
+        <form method="post"
+              hx-post="{% url 'portal:identity_suspend' identity.pk %}"
+              hx-target="#identity-card"
+              hx-swap="outerHTML"
+              hx-confirm="¿Suspender Graph y desactivar las vinculaciones no terminales?">
+          {% csrf_token %}
+          <button class="rounded border border-red-700 px-4 py-2 text-red-700">Suspender identidad</button>
+        </form>
+      {% endif %}
+    </div>
+  {% endif %}
+</section>

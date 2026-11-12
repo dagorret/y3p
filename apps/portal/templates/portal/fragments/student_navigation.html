@@ -1,0 +1,62 @@
+{% comment %}
+#FPORTALHTML01-12141: Paginación determinística y selector de vistas guardadas del ámbito activo.
+Destinos HTMX: {% if builder_mode %}#query-builder{% else %}#tabla-alumnos-container{% endif %}.
+La visibilidad acompaña permisos del servidor; ocultar controles no reemplaza su validación.
+{% endcomment %}
+
+<nav class="flex justify-between" aria-label="Paginación de alumnos">
+  {% if previous_url %}
+    <a href="{{ previous_url }}"
+       hx-get="{{ previous_url }}"
+       hx-target="{% if builder_mode %}#query-builder{% else %}#tabla-alumnos-container{% endif %}"
+       hx-swap="outerHTML"
+       hx-push-url="true"
+       class="text-blue-700 underline">
+      « Anterior
+    </a>
+  {% else %}
+    <span></span>
+  {% endif %}
+  <span class="flex flex-wrap gap-2">
+    {% for item in page_links %}
+      {% if item.ellipsis %}
+        <span>{{ item.number }}</span>
+      {% elif item.current %}
+        <span aria-current="page" class="font-bold">{{ item.number }}</span>
+      {% else %}
+        <a href="{{ item.url }}"
+           hx-get="{{ item.url }}"
+           hx-target="{% if builder_mode %}#query-builder{% else %}#tabla-alumnos-container{% endif %}"
+           hx-swap="outerHTML"
+           hx-push-url="true"
+           class="text-blue-700 underline">
+          {{ item.number }}
+        </a>
+      {% endif %}
+    {% endfor %}
+  </span>
+  {% if next_url %}
+    <a href="{{ next_url }}"
+       hx-get="{{ next_url }}"
+       hx-target="{% if builder_mode %}#query-builder{% else %}#tabla-alumnos-container{% endif %}"
+       hx-swap="outerHTML"
+       hx-push-url="true"
+       class="text-blue-700 underline">
+      Siguiente »
+    </a>
+  {% endif %}
+</nav>
+<label class="block max-w-md text-sm">
+  Vistas Guardadas (Snippets)
+  <select name="snippet"
+          hx-get="{{ grid_url }}"
+          hx-trigger="change"
+          hx-target="{% if builder_mode %}#query-builder{% else %}#tabla-alumnos-container{% endif %}"
+          hx-swap="outerHTML"
+          hx-push-url="true">
+    <option value="">Elegir una vista guardada</option>
+    {% for snippet in snippets %}
+      <option value="{{ snippet.pk }}">{{ snippet.name }} · {{ snippet.is_shared|yesno:"Compartida,Privada" }}</option>
+    {% endfor %}
+  </select>
+</label>
