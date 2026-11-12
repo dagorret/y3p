@@ -10,6 +10,8 @@ from .views import (
     ExtensionDashboardView,
     PostgradoDashboardView,
 )
+from .outbox_monitor import OutboxMonitorView, OutboxBadgeView
+from .academic_views import ScopedIdentityView
 from . import admin_views
 from . import global_views
 from .catalog_views import CatalogSyncView, CatalogChannelsView
@@ -21,6 +23,8 @@ from .team_views import TeamConsoleActionView, TeamMembersView
 app_name = "portal"
 
 urlpatterns = [
+    path('administracion/outbox/', OutboxMonitorView.as_view(), name='outbox_monitor'),
+    path('administracion/outbox/indicador/', OutboxBadgeView.as_view(), name='outbox_badge'),
     path('administracion/ingresar/', LoginView.as_view(
         template_name='portal/administracion/login.html', next_page='portal:administracion',
     ), name='administracion_login'),
@@ -56,6 +60,19 @@ urlpatterns = [
     path('administracion/persona/<int:identity_id>/suspender/', admin_views.IdentitySupportView.as_view(), {'action': 'suspend'}, name='identity_suspend'),
     path('administracion/persona/<int:identity_id>/moodle/inscribir/', admin_views.MoodleExpressView.as_view(), {'action': 'moodle_enrol'}, name='identity_moodle_enrol'),
     path('administracion/persona/<int:identity_id>/moodle/desmatricular/', admin_views.MoodleExpressView.as_view(), {'action': 'moodle_unenrol'}, name='identity_moodle_unenrol'),
-    path("postgrado/", PostgradoDashboardView.as_view(), name="postgrado"),
-    path("extension/", ExtensionDashboardView.as_view(), name="extension"),
+    path("postgrado/inscripcion/", PostgradoDashboardView.as_view(), name="postgrado_registration"),
+    path("extension/inscripcion/", ExtensionDashboardView.as_view(), name="extension_registration"),
+    path("postgrado/", AdministracionDashboardView.as_view(scope="POSGRADO"), name="postgrado"),
+    path("extension/", AdministracionDashboardView.as_view(scope="EXTENSION"), name="extension"),
 ]
+
+#FACADEMICROUTES01-10203: Cada ruta fija el ámbito en el servidor, sin confiar en parámetros ocultos.
+for prefix, scope in (('postgrado', 'POSGRADO'), ('extension', 'EXTENSION')):
+    urlpatterns += [
+        path(f'{prefix}/exportar/', StudentExportView.as_view(scope=scope), name=f'{prefix}_export'),
+        path(f'{prefix}/acciones-masivas/', StudentBulkActionView.as_view(scope=scope), name=f'{prefix}_bulk'),
+        path(f'{prefix}/persona/<int:identity_id>/', ScopedIdentityView.as_view(scope=scope), name=f'{prefix}_detail'),
+        path(f'{prefix}/vistas/', QueryBuilderView.as_view(scope=scope), name=f'{prefix}_builder'),
+        path(f'{prefix}/snippets/guardar/', SnippetCreateView.as_view(scope=scope), name=f'{prefix}_snippet_create'),
+        path(f'{prefix}/snippets/<int:snippet_id>/eliminar/', SnippetDeleteView.as_view(scope=scope), name=f'{prefix}_snippet_delete'),
+    ]

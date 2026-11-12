@@ -36,7 +36,7 @@ class TransitionError(Exception):
     #FSRV00-1000: Error de negocio de transición.
 
 
-def _emit_outbox_event(affiliation, status, *, commission=""):
+def _emit_outbox_event(affiliation, status, *, commission="", user=None):
     """Persiste una intención y solicita despacho después de confirmar la transacción.
 
     Los datos de ejecución se copian al evento para conservar la decisión de
@@ -61,6 +61,7 @@ def _emit_outbox_event(affiliation, status, *, commission=""):
 
     #FOUT03-5003: El evento nunca conserva contraseñas ni credenciales temporales.
     payload = {
+        "send_welcome": status.code == "ALUMNO" and affiliation.profile_type.code in {"POSGRADO", "EXTENSION"},
         "identifier": identity.identifier,
         "upn": identity.institutional_upn or "",
         "first_name": identity.first_name,
@@ -85,6 +86,7 @@ def _emit_outbox_event(affiliation, status, *, commission=""):
         action=status.provisioning_action,
         identity=identity,
         affiliation=affiliation,
+        requested_by=user,
         payload=payload,
     )
     #FOUT04-5004: La notificación ocurre después de confirmar la fila, antes del trabajo remoto.
@@ -195,7 +197,7 @@ def _lock(affiliation_id):
 
     #FSRV05-1005: Bloqueo pesimista de afiliación dentro de la transacción.
     return (
-        Affiliation.objects.select_for_update()
+        Affiliation.objects.select_for_update(of=('self',))
         .select_related("profile_type", "current_status", "identity")
         .get(pk=affiliation_id)
     )
@@ -230,7 +232,7 @@ def _apply(affiliation, rule, *, changed_by, user, reason):
         changed_by_user=user,
         reason=reason,
     )
-    _emit_outbox_event(affiliation, rule.to_status)
+    _emit_outbox_event(affiliation, rule.to_status, user=user)
     return affiliation
 
 
@@ -288,7 +290,7 @@ def create_affiliation(
         changed_by_user=user,
         reason=reason or "Alta",
     )
-    _emit_outbox_event(affiliation, status, commission=commission)
+    _emit_outbox_event(affiliation, status, commission=commission, user=user)
     return affiliation
 
 

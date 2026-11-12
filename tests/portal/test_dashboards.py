@@ -17,6 +17,8 @@ class PortalDashboardTests(TestCase):
     def setUp(self):
         self.posgrado = ProfileTypeDefinition.objects.get(code="POSGRADO")
         self.extension = ProfileTypeDefinition.objects.get(code="EXTENSION")
+        self.operator = get_user_model().objects.create_superuser('registro-operador')
+        self.client.force_login(self.operator)
 
     def registration_data(self, dni="30123456", **overrides):
         data = {
@@ -30,14 +32,15 @@ class PortalDashboardTests(TestCase):
         data.update(overrides)
         return data
 
-    def test_registration_dashboards_are_public_and_administration_requires_login(self):
+    def test_academic_dashboards_and_registration_require_authentication(self):
+        self.client.logout()
         for route in (
             "portal:postgrado",
             "portal:extension",
         ):
             with self.subTest(route=route):
                 response = self.client.get(reverse(route))
-                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.status_code, 302)
         self.assertEqual(self.client.get(reverse('portal:administracion')).status_code, 302)
 
     def test_administration_htmx_search_returns_results_fragment(self):
@@ -91,6 +94,9 @@ class PortalDashboardTests(TestCase):
         affiliation = identity.affiliations.get(profile_type=profile, reference=reference)
         self.assertEqual(affiliation.current_status.code, status_code)
         self.assertContains(response, affiliation.current_status.name)
+        if status_code == 'PRE':
+            self.assertFalse(OutboxEvent.objects.filter(affiliation=affiliation).exists())
+            return identity
         event = OutboxEvent.objects.get(affiliation=affiliation)
         self.assertEqual(event.status, OutboxEvent.Status.PENDING)
         self.assertEqual(event.action, "PROVISION")
@@ -99,7 +105,7 @@ class PortalDashboardTests(TestCase):
 
     def test_postgrado_post_creates_affiliation_and_pending_outbox(self):
         self.assert_registration(
-            route="portal:postgrado",
+            route="portal:postgrado_registration",
             profile=self.posgrado,
             reference_key="program",
             reference="Maestría en Sistemas",
@@ -107,7 +113,7 @@ class PortalDashboardTests(TestCase):
 
     def test_extension_post_creates_affiliation_and_pending_outbox(self):
         self.assert_registration(
-            route="portal:extension",
+            route="portal:extension_registration",
             profile=self.extension,
             reference_key="course",
             reference="Diplomatura en Datos",
@@ -115,7 +121,7 @@ class PortalDashboardTests(TestCase):
 
     def test_postgrado_can_register_as_preinscripto(self):
         self.assert_registration(
-            route="portal:postgrado",
+            route="portal:postgrado_registration",
             profile=self.posgrado,
             reference_key="program",
             reference="Maestría en Sistemas",
@@ -124,7 +130,7 @@ class PortalDashboardTests(TestCase):
 
     def test_extension_can_register_as_preinscripto(self):
         self.assert_registration(
-            route="portal:extension",
+            route="portal:extension_registration",
             profile=self.extension,
             reference_key="course",
             reference="Diplomatura en Datos",
@@ -135,7 +141,7 @@ class PortalDashboardTests(TestCase):
         data = self.registration_data()
         data["initial_status_code"] = "INEXISTENTE"
         response = self.client.post(
-            reverse("portal:postgrado"), data, HTTP_HX_REQUEST="true"
+            reverse("portal:postgrado_registration"), data, HTTP_HX_REQUEST="true"
         )
 
         self.assertEqual(response.status_code, 200)
@@ -145,13 +151,13 @@ class PortalDashboardTests(TestCase):
 
     def test_second_dashboard_registration_reuses_identity(self):
         first_identity = self.assert_registration(
-            route="portal:postgrado",
+            route="portal:postgrado_registration",
             profile=self.posgrado,
             reference_key="program",
             reference="Maestría en Sistemas",
         )
         second_identity = self.assert_registration(
-            route="portal:extension",
+            route="portal:extension_registration",
             profile=self.extension,
             reference_key="course",
             reference="Diplomatura en Datos",
@@ -163,7 +169,7 @@ class PortalDashboardTests(TestCase):
 
     def test_invalid_registration_returns_error_fragment_without_writes(self):
         response = self.client.post(
-            reverse("portal:postgrado"),
+            reverse("portal:postgrado_registration"),
             self.registration_data(dni="DNI-invalido", first_name=""),
             HTTP_HX_REQUEST="true",
         )
@@ -175,7 +181,7 @@ class PortalDashboardTests(TestCase):
         self.assertEqual(OutboxEvent.objects.count(), 0)
 
     def test_missing_required_fields_rerender_full_form_with_client_error(self):
-        response = self.client.post(reverse("portal:extension"), {})
+        response = self.client.post(reverse("portal:extension_registration"), {})
 
         self.assertEqual(response.status_code, 422)
         self.assertContains(response, "DNI", status_code=422)

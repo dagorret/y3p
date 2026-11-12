@@ -57,6 +57,14 @@ class MockGraphClient:
         self.set_temporary_password(user_id_or_upn, temp_password)
         return ExternalActionResult('reset_password')
 
+    def remove_license(self, upn, sku_id):
+        return self.toggle_license(upn, sku_id, assign=False)
+
+    def disable_user(self, upn):
+        from apps.integrations.dataclasses import GraphAccountResult
+        MockAzureUser.objects.filter(upn=upn).update(is_active=False)
+        return GraphAccountResult(upn, False)
+
     def get_user_license_ids(self, upn):
         user = MockAzureUser.objects.get(upn=upn)
         return (user.assigned_sku,) if user.assigned_sku else ()
@@ -164,6 +172,10 @@ class MockMoodleClient:
     def enrol_user(self, user_id, course_id, role_id=5):
         MockMoodleEnrollment.objects.get_or_create(user_id=user_id, course_id=course_id, defaults={'role_id': role_id})
         return MoodleEnrollmentResult(user_id, course_id, role_id, True)
+
+    def unenrol_user(self, user_id, course_id, role_id=5):
+        MockMoodleEnrollment.objects.filter(user_id=user_id, course_id=course_id, role_id=role_id).delete()
+        return ExternalActionResult('unenrol_user')
 
     def get_or_create_group(self, course_id, group_name):
         if not MockMoodleCourse.objects.filter(pk=course_id).exists():

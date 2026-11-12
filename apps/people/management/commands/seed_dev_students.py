@@ -24,7 +24,7 @@ class Command(BaseCommand):
     help = 'Crea alumnos de desarrollo y sincroniza sus plataformas simuladas de forma idempotente.'
 
     def add_arguments(self, parser):
-        parser.add_argument('--count', type=int, default=60, help='Cantidad de alumnos de prueba (predeterminado: 60).')
+        parser.add_argument('--count', type=int, default=60, help='Cantidad de alumnos de Grado (predeterminado: 60); agrega un tercio de ese número, con mínimo dos, en Posgrado y Extensión.')
 
     @transaction.atomic
     def handle(self, *args, **options):
@@ -81,10 +81,12 @@ class Command(BaseCommand):
             })
             students.append((identity, azure))
         teams, channels, members = self.seed_catalogs(students, courses, now)
+        academic_count = self.seed_academic_scopes(max(2, options['count'] // 3), courses, now, sku)
         self.stdout.write(self.style.SUCCESS(
             f"Semilla sincronizada: {options['count']} alumnos. " + ', '.join(f'{color}: {totals[color]}' for color in ('Verde', 'Amarillo', 'Naranja', 'Rojo')) + '.'))
         self.stdout.write(self.style.SUCCESS(
             f'Espejos sembrados: {teams} equipos, {channels} canales, {members} miembros y {len(courses)} cursos.'))
+        self.stdout.write(self.style.SUCCESS(f'Ámbitos adicionales: POSGRADO={academic_count}, EXTENSION={academic_count}; alternan PRE y ALUMNO.'))
 
     def seed_catalogs(self, students, courses, now):
         """Concilia tres catálogos estables y su pivot sin consultar servicios remotos.
@@ -142,3 +144,35 @@ class Command(BaseCommand):
         mirrors = TeamsWorkspaceMirror.objects.filter(team_id__in=[str(team.pk) for team in teams])
         return (mirrors.count(), TeamsChannelMirror.objects.filter(workspace__in=mirrors).count(),
                 TeamsMemberMirror.objects.filter(workspace__in=mirrors).count())
+
+    def seed_academic_scopes(self, count, courses, now, sku):
+        """Agrega identidades independientes para probar aislamiento y confirmación sin despachos reales."""
+        from apps.platform_mocks.models import MockAzureUser, MockMoodleUser, MockMoodleEnrollment
+        from apps.integrations.models import MoodleCourseMirror
+        for scope, prefix, course in (('POSGRADO', 96000000, courses[0]), ('EXTENSION', 97000000, courses[2])):
+            profile = ProfileTypeDefinition.objects.get(code=scope)
+            statuses = {status.code: status for status in SagaStatusDefinition.objects.filter(profile_type=profile, code__in=['PRE', 'ALUMNO'])}
+            for index in range(count):
+                dni = str(prefix + index)
+                upn = f'a{dni}@eco.unrc.edu.ar'
+                confirmed = index % 2 == 1
+                identity, _ = Identity.objects.update_or_create(identifier=dni, defaults={
+                    'category': 'FISICA', 'first_name': f'Estudiante {index + 1:04}', 'last_name': f'Desarrollo {scope}',
+                    'institutional_upn': upn, 'metadata': {'seed': 'seed_dev_academic_students', 'scope': scope}})
+                PersonalProfile.objects.update_or_create(identity=identity, defaults={'personal_email': f'dev{dni}@example.test'})
+                affiliation, _ = Affiliation.objects.update_or_create(identity=identity, profile_type=profile, defaults={
+                    'current_status': statuses['ALUMNO' if confirmed else 'PRE'], 'reference': course.shortname,
+                    'is_active': True, 'expires_at': now + timedelta(days=365 if confirmed else 60)})
+                if confirmed:
+                    MockAzureUser.objects.update_or_create(upn=upn, defaults={'first_name': identity.first_name,
+                        'last_name': identity.last_name, 'document_number': dni, 'is_active': True, 'assigned_sku': sku,
+                        'password_profile_force_change': False, 'last_activity_at': now})
+                    user, _ = MockMoodleUser.objects.update_or_create(username=upn, defaults={
+                        'email': upn, 'first_name': identity.first_name, 'last_name': identity.last_name, 'suspended': False})
+                    MockMoodleEnrollment.objects.update_or_create(user=user, course=course, defaults={'role_id': 5})
+                    #FSEEDSCOPE01-10501: La evidencia semilla termina en SUCCEEDED para no enviar correos de prueba.
+                    OutboxEvent.objects.update_or_create(identity=identity, payload={'seed': 'seed_dev_academic_students', 'scope': scope},
+                        defaults={'affiliation': affiliation, 'action': 'PROVISION', 'status': 'SUCCEEDED', 'processed_at': now})
+        for course in courses:
+            MoodleCourseMirror.objects.filter(course_id=course.pk).update(enrolled_count=course.enrollments.filter(user__suspended=False).count())
+        return count

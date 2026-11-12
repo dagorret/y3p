@@ -9,6 +9,6 @@
     <label class="order-5 min-w-0 lg:order-none lg:w-36">Filas por página<select name="page_size">{% for size in page_sizes %}<option value="{{ size }}" {% if page_size == size %}selected{% endif %}>{{ size }}</option>{% endfor %}</select></label>
     {% if not builder_mode %}<input type="hidden" name="formula" value="{{ formula }}">{% endif %}
     {% if builder_mode %}{% include "portal/fragments/formula_editor.html" %}{% endif %}
-    <a href="{% url 'portal:student_export' %}?{{ export_query }}" data-url="{% url 'portal:student_export' %}" onclick="this.href = this.dataset.url + '?' + new URLSearchParams(new FormData(document.getElementById('student-filters'))).toString()" class="order-6 col-span-2 rounded-lg bg-blue-700 px-4 py-2 text-center text-white lg:order-none">Exportar a Excel</a>
+    <a href="{{ export_url }}?{{ export_query }}" data-url="{{ export_url }}" onclick="this.href = this.dataset.url + '?' + new URLSearchParams(new FormData(document.getElementById('student-filters'))).toString()" class="order-6 col-span-2 rounded-lg bg-blue-700 px-4 py-2 text-center text-white lg:order-none">Exportar a Excel</a>
   </form>
 </section>

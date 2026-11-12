@@ -7,6 +7,7 @@ from django.db import models
 class AdminQuerySnippet(models.Model):
     """Consulta privada o compartida que se recompila mediante el parser seguro."""
 
+    scope = models.CharField('Ámbito académico', max_length=10, default='GRADO', choices=(('GRADO', 'Grado'), ('POSGRADO', 'Posgrado'), ('EXTENSION', 'Extensión')), db_index=True)
     name = models.CharField('Nombre', max_length=150)
     query_expression = models.TextField('Fórmula', blank=True, max_length=2000)
     filter_params = models.JSONField('Filtros complementarios', default=dict, blank=True)

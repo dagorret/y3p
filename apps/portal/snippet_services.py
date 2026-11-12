@@ -9,8 +9,7 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.db.models import Q
 
-from apps.people.permissions import ADMINISTRATE_STUDENT_CRITICAL, OPERATE_STUDENT_DAILY, has_portal_permission
-from apps.people.support import require_permission
+from apps.people.scopes import require_scope_permission, has_scope_permission, scope_url
 from .models import AdminQuerySnippet
 from .query_parser import QuerySyntaxError, parse_query
 
@@ -18,14 +17,15 @@ from .query_parser import QuerySyntaxError, parse_query
 FILTER_KEYS = {'q', 'career', 'status', 'health', 'page_size'}
 
 
-def visible_snippets(user):
+def visible_snippets(user, *, scope='GRADO'):
     """Carga solo vistas compartidas o propias; no expone vistas privadas ajenas."""
     visible = Q(pk=0)
     if user is not None and user.is_authenticated:
         visible = Q(is_shared=True) | Q(created_by_id=user.pk)
-    snippets = list(AdminQuerySnippet.objects.filter(visible))
-    administrator = user is not None and has_portal_permission(user, ADMINISTRATE_STUDENT_CRITICAL)
+    snippets = list(AdminQuerySnippet.objects.filter(visible, scope=scope))
+    administrator = user is not None and has_scope_permission(user, scope, 'admin')
     for snippet in snippets:
+        snippet.delete_url = scope_url(scope, 'snippet_delete', snippet_id=snippet.pk)
         snippet.can_delete = administrator or (user is not None and snippet.created_by_id == user.pk)
     return snippets
 
@@ -64,15 +64,15 @@ def resolve_query_params(params, snippets):
 
 
 @transaction.atomic
-def create_snippet(*, user, name, expression, filter_params, is_shared=False):
+def create_snippet(*, user, name, expression, filter_params, is_shared=False, scope='GRADO'):
     """Guarda una preferencia validada; el autor siempre es el usuario autenticado."""
-    require_permission(user, OPERATE_STUDENT_DAILY)
+    require_scope_permission(user, scope, 'operate')
     #FSNIPPET05-8205: El nombre identifica la vista y no puede estar vacío.
     if not isinstance(name, str) or not name.strip() or len(name.strip()) > 150:
         raise ValidationError('Indique un nombre de hasta 150 caracteres para la vista guardada.')
     parse_query(expression)
     validate_filter_params(filter_params)
-    snippet = AdminQuerySnippet(name=name.strip(), query_expression=expression.strip(),
+    snippet = AdminQuerySnippet(scope=scope, name=name.strip(), query_expression=expression.strip(),
                                 filter_params=filter_params, is_shared=is_shared, created_by=user)
     snippet.full_clean()
     snippet.save()
@@ -80,11 +80,11 @@ def create_snippet(*, user, name, expression, filter_params, is_shared=False):
 
 
 @transaction.atomic
-def delete_snippet(*, user, snippet_id):
+def delete_snippet(*, user, snippet_id, scope='GRADO'):
     """Permite borrar vistas propias y concede alcance global a administración."""
-    require_permission(user, OPERATE_STUDENT_DAILY)
-    allowed = AdminQuerySnippet.objects.filter(pk=snippet_id)
-    if not has_portal_permission(user, ADMINISTRATE_STUDENT_CRITICAL):
+    require_scope_permission(user, scope, 'operate')
+    allowed = AdminQuerySnippet.objects.filter(pk=snippet_id, scope=scope)
+    if not has_scope_permission(user, scope, 'admin'):
         allowed = allowed.filter(created_by=user)
     if not allowed.delete()[0]:
         #FSNIPPET06-8206: No revela existencia ni autor de una vista privada ajena.

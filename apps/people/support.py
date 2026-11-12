@@ -84,7 +84,7 @@ def _password():
     return ''.join(chars)
 
 
-def perform_support(identity_id, action, *, user, dry_run=None, **options):
+def perform_support(identity_id, action, *, user, dry_run=None, scope='GRADO', **options):
     """Ejecuta una acción autorizada y registra inicio, resultado y fallo parcial.
 
     La capacidad se comprueba aquí además de la vista para proteger otros
@@ -96,8 +96,15 @@ def perform_support(identity_id, action, *, user, dry_run=None, **options):
     if action not in SUPPORT_ACTIONS:
         #FPEOPLESUPPORT003-8003: Origina ValidationError; el llamador conserva la causa y decide su tratamiento.
         raise ValidationError('Acción de soporte inválida.')
-    require_permission(user, ADMINISTRATE_STUDENT_CRITICAL if action in ('license', 'suspend') else OPERATE_STUDENT_DAILY)
+    from .scopes import require_scope_permission, validate_scope
+    require_scope_permission(user, scope, 'admin' if action in ('license', 'suspend') else 'operate')
+    if scope != 'GRADO' and not Identity.objects.filter(pk=identity_id, affiliations__profile_type__code=validate_scope(scope)).exists():
+        #FSUPPORTSCOPE01-10106: El trabajador revalida ámbito y permisos antes de cualquier llamada remota.
+        raise PermissionDenied('La identidad no pertenece al ámbito solicitado.')
     identity = Identity.objects.get(pk=identity_id)
+    #FSUPPORTSCOPE02-10308: Una suspensión global no puede cancelar vinculaciones activas de otros ámbitos académicos.
+    if action == 'suspend' and identity.affiliations.filter(is_active=True, profile_type__code__in=['ALUMNO', 'POSGRADO', 'EXTENSION']).exclude(profile_type__code=validate_scope(scope)).exists():
+        raise PermissionDenied('La cuenta mantiene vinculaciones activas de otros ámbitos académicos.')
     audit(identity, user, action, status='STARTED')
     try:
         if not identity.institutional_upn:

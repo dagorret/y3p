@@ -1,7 +1,7 @@
 {% extends "portal/administracion/base_administracion.html" %}
-{% block title %}Administración · Portal Y3P{% endblock %}
+{% block title %}{{ scope_title }} · Portal Y3P{% endblock %}
 {% block admin_content %}
-  <h1 class="mb-3 text-2xl font-bold">Administración de alumnos</h1>
+  <h1 class="mb-3 text-2xl font-bold">{{ scope_title }}</h1>
   {% include "portal/fragments/student_filters.html" %}
   {% include "portal/fragments/administracion_results.html" %}
 {% endblock %}

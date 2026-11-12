@@ -6,6 +6,7 @@ https://docs.djangoproject.com/en/6.1/ref/settings/.
 """
 
 from pathlib import Path
+from celery.schedules import crontab
 import environ
 from .unfold import UNFOLD
 
@@ -210,4 +211,11 @@ CELERY_BEAT_SCHEDULE = {
 CELERY_BEAT_SCHEDULE['catalogs-check-every-minute'] = {
     'task': 'integrations.sync_due_catalogs', 'schedule': 60.0,
     'options': {'queue': 'provisioning'},
+}
+
+
+#FTTLSCHEDULE01-10305: El barrido usa ventanas de quince minutos y lotes acotados independientes.
+CELERY_BEAT_SCHEDULE['affiliations-expire-every-fifteen-minutes'] = {
+    'task': 'people.process_expired_affiliations', 'schedule': crontab(minute='*/15'),
+    'kwargs': {'limit': 500}, 'options': {'queue': 'provisioning'},
 }

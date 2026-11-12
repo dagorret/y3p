@@ -4,7 +4,7 @@ import json
 
 from django.contrib.admin.models import LogEntry
 from django.contrib.contenttypes.models import ContentType
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.shortcuts import get_object_or_404, render
 from django.views import View
 from django.utils import timezone
@@ -27,7 +27,7 @@ def ficha_context(identity, *, message='', error=False):
     profile = getattr(identity, 'personal_profile', None)
     initial = {'first_name': identity.first_name, 'last_name': identity.last_name}
     initial.update({field: getattr(profile, field, '') for field in ('personal_email', 'phone', 'city', 'address')})
-    affiliations = list(identity.affiliations.select_related('profile_type', 'current_status').order_by('-pk'))
+    affiliations = list(identity.affiliations.exclude(profile_type__code__in=['POSGRADO', 'EXTENSION']).select_related('profile_type', 'current_status').order_by('-pk'))
     for affiliation in affiliations:
         affiliation.transition_form = TransitionForm(affiliation=affiliation, auto_id=f'id_transition_{affiliation.pk}_%s')
         affiliation.ttl_form = TTLForm(
@@ -52,6 +52,9 @@ class Identity360View(StaffPortalMixin, View):
     def get(self, request, identity_id):
         #FPORTALADMINVIEWS001-8001: La búsqueda acotada del recurso produce HTTP 404 cuando no existe.
         identity = get_object_or_404(Identity, pk=identity_id)
+        #FGRADEISOLATION01-10306: La ficha histórica no permite abrir identidades exclusivamente ajenas a Grado.
+        if identity.affiliations.filter(profile_type__code__in=['POSGRADO', 'EXTENSION']).exists() and not identity.affiliations.filter(profile_type__code='ALUMNO').exists():
+            raise PermissionDenied('La identidad no pertenece al ámbito de Grado.')
         template = 'portal/administracion/detail.html' if request.headers.get('HX-Request') == 'true' else 'portal/administracion/person.html'
         #FPORTALADMINVIEWS002-8002: Respuesta HTTP explícita o predeterminada: mantiene el contrato de página, fragmento o redirección.
         return render(request, template, ficha_context(identity))
@@ -64,12 +67,18 @@ class IdentityMutationView(StaffPortalMixin, View):
     def post(self, request, identity_id, **kwargs):
         #FPORTALADMINVIEWS003-8003: La búsqueda acotada del recurso produce HTTP 404 cuando no existe.
         identity = get_object_or_404(Identity, pk=identity_id)
+        #FGRADEISOLATION01-10306: La ficha histórica no permite abrir identidades exclusivamente ajenas a Grado.
+        if identity.affiliations.filter(profile_type__code__in=['POSGRADO', 'EXTENSION']).exists() and not identity.affiliations.filter(profile_type__code='ALUMNO').exists():
+            raise PermissionDenied('La identidad no pertenece al ámbito de Grado.')
         form_kwargs = {}
         affiliation = None
         if 'affiliation_id' in kwargs:
             require_permission(request.user, ADMINISTRATE_STUDENT_CRITICAL)
             #FPORTALADMINVIEWS004-8004: La búsqueda acotada del recurso produce HTTP 404 cuando no existe.
             affiliation = get_object_or_404(Affiliation, pk=kwargs['affiliation_id'], identity=identity)
+            #FGRADEISOLATION02-10307: Una identidad compartida no habilita mutar sus vinculaciones de otro ámbito.
+            if affiliation.profile_type.code in ['POSGRADO', 'EXTENSION']:
+                raise PermissionDenied('La vinculación no pertenece al ámbito de Grado.')
             if self.form_class is TransitionForm:
                 form_kwargs['affiliation'] = affiliation
         form = self.form_class(request.POST, **form_kwargs) if self.form_class else None

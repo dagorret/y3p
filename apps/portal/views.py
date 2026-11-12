@@ -6,6 +6,7 @@ from django.http import HttpResponse
 from django.shortcuts import redirect, render
 from django.views import View
 
+from apps.people.permissions import OPERATE_STUDENT_DAILY
 from apps.people.models import Affiliation, Identity, ProfileTypeDefinition
 
 from .forms import ExtensionRegistrationForm, PostgradoRegistrationForm
@@ -31,7 +32,7 @@ class AdministracionDashboardView(StaffPortalMixin, View):
     builder_mode = False
 
     def get(self, request):
-        context = student_grid_context(request.GET, user=request.user, builder_mode=self.builder_mode)
+        context = student_grid_context(request.GET, user=request.user, builder_mode=self.builder_mode, scope=self.scope)
         context['refresh_filters'] = _is_htmx(request) and 'snippet' in request.GET
         template = self.fragment_name if _is_htmx(request) else self.template_name
         #FPORTALVIEWS001-8001: Respuesta HTTP explícita o predeterminada: mantiene el contrato de página, fragmento o redirección.
@@ -126,7 +127,9 @@ class RegistrationDashboardView(View):
         return {"form": form, "affiliations": affiliations}
 
 
-class PostgradoDashboardView(RegistrationDashboardView):
+class PostgradoDashboardView(StaffPortalMixin, RegistrationDashboardView):
+    scope = 'POSGRADO'
+    required_permission = OPERATE_STUDENT_DAILY
     """Registra estudiantes de posgrado y actualiza la grilla reactiva."""
 
     template_name = "portal/postgrado.html"
@@ -138,7 +141,9 @@ class PostgradoDashboardView(RegistrationDashboardView):
     reference_field = "program"
 
 
-class ExtensionDashboardView(RegistrationDashboardView):
+class ExtensionDashboardView(StaffPortalMixin, RegistrationDashboardView):
+    scope = 'EXTENSION'
+    required_permission = OPERATE_STUDENT_DAILY
     """Registra participantes de extensión y actualiza la grilla reactiva."""
 
     template_name = "portal/extension.html"
